@@ -64,7 +64,7 @@ namespace PubSub
             AsyncIO.ForceDotNet.Force();
             using (var subSocket = new SubscriberSocket())
             {
-                subSocket.Options.ReceiveHighWatermark = 1;
+                subSocket.Options.ReceiveHighWatermark = 10;
                 subSocket.Connect($"tcp://{_host}:{_port}");
 
                 while (_IsListening)

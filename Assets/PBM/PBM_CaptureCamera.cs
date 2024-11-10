@@ -71,6 +71,9 @@ public class PBM_CaptureCamera : MonoBehaviour
     private bool isProcessingFrame = false;
     private bool hasReceivedFirstFrame = false;
 
+    private float lastRenderTime = 0f;
+    private const float renderInterval = 0.2f;
+
     private void Awake()
     {
         _Camera = GetComponent<Camera>();
@@ -169,6 +172,9 @@ public class PBM_CaptureCamera : MonoBehaviour
     // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
+        //if (Time.time - lastRenderTime < renderInterval) return;
+        //lastRenderTime = Time.time;
+
         if (ColorImage != null && hasReceivedFirstFrame)
         {
             lock (dataLock)
@@ -185,12 +191,8 @@ public class PBM_CaptureCamera : MonoBehaviour
             textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
             textureSource.Apply();
 
-            RealVirtualMergeMaterial.mainTexture = textureSource;
+            RealVirtualMergeMaterial.mainTexture = source;
             RealVirtualMergeMaterial.SetTexture("_RealContentTex", ColorImage);
-
-            //Debug.Log($"OnRenderImage: textureSource is {textureSource}, " +
-            //    $"ColorImage size is {ColorImage.width} {ColorImage.height}, " +
-            //    $"ViewRenderTexture size is {ViewRenderTexture.width} {ViewRenderTexture.height}");
 
             Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
         }
