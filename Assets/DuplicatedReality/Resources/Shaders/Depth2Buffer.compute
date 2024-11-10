@@ -1,0 +1,126 @@
+﻿
+#pragma kernel Compute
+
+
+//Input vars
+float _maxPointDistance;
+
+Texture2D<float4> _XYLookup;
+Texture2D<float> _DepthTex;
+int _DepthWidth;
+int _DepthHeight;
+
+float4x4 _Transform;
+float4x4 _Col2DepCalibration;
+
+//Output vars
+RWStructuredBuffer<float3> vertices;
+RWStructuredBuffer<float2> uv;
+RWStructuredBuffer<int> triangles;
+
+[numthreads(32, 32, 1)]
+void Compute(uint3 id : SV_DispatchThreadID) {
+
+    const int x = id.x;
+    const int y = id.y;
+
+    int idx = x + _DepthWidth * y;
+    int idxx = idx * 6;
+	
+	int x0 = x - 1;
+	if (x0 < 0) x0 = 0;
+
+	int x1 = x + 1;
+	if (x1 >= _DepthWidth) x1 = _DepthWidth - 1;
+
+	int y0 = y - 1;
+	if (y0 < 0) y0 = 0;
+
+	int y1 = y + 1;
+	if (y1 >= _DepthHeight) y1 = _DepthHeight - 1;
+	
+    const int3 t00 = int3(x0, y0, 0);
+    const int3 t01 = int3(x0, y, 0);
+    const int3 t02 = int3(x0, y1, 0);
+
+    const int3 t10 = int3(x, y0, 0);
+    const int3 t11 = int3(x, y, 0);
+    const int3 t12 = int3(x, y1, 0);
+
+    const int3 t20 = int3(x1, y0, 0);
+    const int3 t21 = int3(x1, y, 0);
+    const int3 t22 = int3(x1, y1, 0);
+	
+    const float4 xy00 = _XYLookup.Load(t00) * 2 - 1;
+    const float4 xy01 = _XYLookup.Load(t01) * 2 - 1;
+    const float4 xy02 = _XYLookup.Load(t02) * 2 - 1;
+
+    const float4 xy10 = _XYLookup.Load(t10) * 2 - 1;
+    const float4 xy11 = _XYLookup.Load(t11) * 2 - 1;
+    const float4 xy12 = _XYLookup.Load(t12) * 2 - 1;
+
+    const float4 xy20 = _XYLookup.Load(t20) * 2 - 1;
+    const float4 xy21 = _XYLookup.Load(t21) * 2 - 1;
+    const float4 xy22 = _XYLookup.Load(t22) * 2 - 1;
+	
+    const float depth00 = _DepthTex.Load(t00); // max ushort
+    const float depth01 = _DepthTex.Load(t01);
+    const float depth02 = _DepthTex.Load(t02);
+
+    const float depth10 = _DepthTex.Load(t10);
+    const float depth11 = _DepthTex.Load(t11);
+    const float depth12 = _DepthTex.Load(t12);
+
+    const float depth20 = _DepthTex.Load(t20);
+    const float depth21 = _DepthTex.Load(t21);
+    const float depth22 = _DepthTex.Load(t22);
+
+    const float4x4 PCO = mul(_Transform, _Col2DepCalibration);
+	
+    const float4 pos00 = mul(PCO, float4(float3(xy00.x, -xy00.y, 1) * depth00 * 65536 * 0.001f, 1.0f));
+    const float4 pos01 = mul(PCO, float4(float3(xy01.x, -xy01.y, 1) * depth01 * 65536 * 0.001f, 1.0f));
+    const float4 pos02 = mul(PCO, float4(float3(xy02.x, -xy02.y, 1) * depth02 * 65536 * 0.001f, 1.0f));
+	
+    const float4 pos10 = mul(PCO, float4(float3(xy10.x, -xy10.y, 1) * depth10 * 65536 * 0.001f, 1.0f));
+    const float4 pos11 = mul(PCO, float4(float3(xy11.x, -xy11.y, 1) * depth11 * 65536 * 0.001f, 1.0f));
+    const float4 pos12 = mul(PCO, float4(float3(xy12.x, -xy12.y, 1) * depth12 * 65536 * 0.001f, 1.0f));
+
+    const float4 pos20 = mul(PCO, float4(float3(xy20.x, -xy20.y, 1) * depth20 * 65536 * 0.001f, 1.0f));
+    const float4 pos21 = mul(PCO, float4(float3(xy21.x, -xy21.y, 1) * depth21 * 65536 * 0.001f, 1.0f));
+    const float4 pos22 = mul(PCO, float4(float3(xy22.x, -xy22.y, 1) * depth22 * 65536 * 0.001f, 1.0f));
+	
+	vertices[idx] = pos11.xyz;
+
+	uv[idx] = float2(1.0f * x / _DepthWidth, 1.0f * y / _DepthHeight);
+
+	//if (abs(pos.z - pos0.z) > _maxDistThreshold || abs(pos.z - pos1.z) > _maxDistThreshold || abs(pos.z - pos2.z) > _maxDistThreshold || abs(pos.z - pos3.z) > _maxDistThreshold ||
+    if (distance(pos11, pos00) > _maxPointDistance || distance(pos11, pos01) > _maxPointDistance || distance(pos11, pos02) > _maxPointDistance ||
+		distance(pos11, pos10) > _maxPointDistance ||												distance(pos11, pos12) > _maxPointDistance ||
+		distance(pos11, pos20) > _maxPointDistance || distance(pos11, pos21) > _maxPointDistance || distance(pos11, pos22) > _maxPointDistance ||
+		depth00 > 0.98f || depth01 > 0.98f || depth02 > 0.98f || 
+		depth10 > 0.98f || depth11 > 0.98f || depth12 > 0.98f || 
+		depth20 > 0.98f || depth21 > 0.98f || depth22 > 0.98f)
+	{
+		triangles[idxx++] = -1;
+        triangles[idxx++] = -1;
+        triangles[idxx++] = -1;
+
+        triangles[idxx++] = -1;
+        triangles[idxx++] = -1;
+        triangles[idxx++] = -1;
+    }
+	else
+	{
+		triangles[idxx++] = x0 + _DepthWidth * y0;
+        triangles[idxx++] = x1 + _DepthWidth * y0;
+		triangles[idxx++] = x0 + _DepthWidth * y1;
+		
+		triangles[idxx++] = x1 + _DepthWidth * y0;
+        triangles[idxx++] = x1 + _DepthWidth * y1;
+		triangles[idxx++] = x0 + _DepthWidth * y1;
+
+
+
+	}
+
+}
