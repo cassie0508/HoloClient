@@ -1,19 +1,20 @@
 ﻿using PubSub;
 using System;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 [RequireComponent(typeof(Camera))]
 public class PBM_CaptureCamera : MonoBehaviour
 {
     [SerializeField] private string host;
-    [SerializeField] private string port = "55555";
+    [SerializeField] private string port = "12345";
     private Subscriber subscriber;
 
     [Header("Feed the camera texture into ColorImage. \nConfigure the Camera component to use the physical Camera property. \nMatch the sensor size with the camera resolution and configure the FoV/FocalLength."), Space]
     [SerializeField] private Texture2D ColorImage;
-    private bool hasFirstFrameReceived;
     private Texture2D textureSource;
-    private byte[] ColorImageData;
+    private static byte[] ColorImageData;
+    private static readonly object dataLock = new object();
 
     [Header("Resulting View (leave empty)")]
     public RenderTexture ViewRenderTexture;
@@ -67,22 +68,11 @@ public class PBM_CaptureCamera : MonoBehaviour
     [Space]
     public PBM_CameraFrustum Frustum;
 
-    private bool isFrameBeingProcessed = false;
+    private bool isProcessingFrame = false;
+    private bool hasReceivedFirstFrame = false;
 
     private void Awake()
     {
-        try
-        {
-            subscriber = new Subscriber(host, port);
-            subscriber.AddTopicCallback("Size", data => OnColorSizeReceived(data));
-            subscriber.AddTopicCallback("Color", data => OnColorFrameReceived(data));
-            Debug.Log("Subscriber setup complete with host: " + host + " and port: " + port);
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("Failed to start subscriber: " + e.Message);
-        }
-
         _Camera = GetComponent<Camera>();
         _Camera.stereoTargetEye = StereoTargetEyeMask.None; // Set stereo target to none
         _Camera.cullingMask &= ~(1 << LayerMask.NameToLayer("PBM"));
@@ -98,16 +88,25 @@ public class PBM_CaptureCamera : MonoBehaviour
         ViewRenderTexture.Create();
 
         Frustum.Create(LayerMask.NameToLayer("PBM"), transform);
-
-        hasFirstFrameReceived = false;
     }
 
-    private void OnColorSizeReceived(byte[] msg)
+    private void Start()
     {
-        long timestamp = BitConverter.ToInt64(msg, 0);
-        byte[] data = new byte[msg.Length - sizeof(long)];
-        Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
+        try
+        {
+            subscriber = new Subscriber(host, port);
+            subscriber.AddTopicCallback("Size", data => OnColorSizeReceived(data));
+            subscriber.AddTopicCallback("Frame", data => OnColorFrameReceived(data));
+            Debug.Log("Subscriber setup complete with host: " + host + " and port: " + port);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Failed to start subscriber: " + e.Message);
+        }
+    }
 
+    private void OnColorSizeReceived(byte[] data)
+    {
         if (data.Length != 2 * sizeof(int))
         {
             Debug.LogError($"PBM_CaptureCamera::OnColorSizeReceived(): Data length is not right");
@@ -126,7 +125,7 @@ public class PBM_CaptureCamera : MonoBehaviour
         {
             if (ColorImage == null)
             {
-                ColorImage = new Texture2D(width, height, TextureFormat.RGB24, false);
+                ColorImage = new Texture2D(width, height, TextureFormat.BGRA32, false);
                 Debug.Log($"PBM_CaptureCamera::OnColorSizeReceived(): Initialized new ColorImage with width: {width}, height: {height}");
             }
         });
@@ -134,8 +133,6 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     private void OnColorFrameReceived(byte[] msg)
     {
-        hasFirstFrameReceived = true;
-
         long timestamp = BitConverter.ToInt64(msg, 0);
         byte[] data = new byte[msg.Length - sizeof(long)];
         Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
@@ -144,10 +141,17 @@ public class PBM_CaptureCamera : MonoBehaviour
         double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
         Debug.Log($"Receiving delay: {delayMilliseconds} ms ------------------");
 
-        if (isFrameBeingProcessed) return;
-        
-        ColorImageData = data;
-        isFrameBeingProcessed = true;
+        if (isProcessingFrame) return;
+
+        isProcessingFrame = true;
+
+        lock (dataLock)
+        {
+            ColorImageData = data;
+        }
+            
+        isProcessingFrame = false;
+        hasReceivedFirstFrame = true;
     }
 
     public void UpdateValidAreaCompensationWithObserver(Vector3 ObserverWorldPos)
@@ -160,6 +164,36 @@ public class PBM_CaptureCamera : MonoBehaviour
         _Camera.Render();
 
         Frustum.UpdateFrustum(_Camera.focalLength, _Camera.sensorSize.x, _Camera.sensorSize.y);
+    }
+
+    // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
+    private void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        if (ColorImage != null && hasReceivedFirstFrame)
+        {
+            lock (dataLock)
+            {
+                ColorImage.LoadRawTextureData(ColorImageData);
+                ColorImage.Apply();
+            }
+
+            if (textureSource == null)
+            {
+                textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
+            }
+            RenderTexture.active = source;
+            textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            textureSource.Apply();
+
+            RealVirtualMergeMaterial.mainTexture = textureSource;
+            RealVirtualMergeMaterial.SetTexture("_RealContentTex", ColorImage);
+
+            //Debug.Log($"OnRenderImage: textureSource is {textureSource}, " +
+            //    $"ColorImage size is {ColorImage.width} {ColorImage.height}, " +
+            //    $"ViewRenderTexture size is {ViewRenderTexture.width} {ViewRenderTexture.height}");
+
+            Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
+        }
     }
 
     private bool IsValidObserverPosition(Vector3 worldPos)
@@ -228,35 +262,4 @@ public class PBM_CaptureCamera : MonoBehaviour
         return new Vector2(fov, fov);
     }
 
-    // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
-    private void OnRenderImage(RenderTexture source, RenderTexture destination)
-    {
-        if (ColorImage != null && hasFirstFrameReceived && isFrameBeingProcessed)
-        {
-            // Load ColorImageData into ColorImage
-            if (ColorImageData != null)
-            {
-                ColorImage.LoadRawTextureData(ColorImageData);
-                ColorImage.Apply();
-            }
-
-            if (textureSource == null)
-            {
-                textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
-            }
-            RenderTexture.active = source;
-            textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-            textureSource.Apply();
-
-            RealVirtualMergeMaterial.mainTexture = textureSource;
-            RealVirtualMergeMaterial.SetTexture("_RealContentTex", ColorImage);
-
-            //Debug.Log($"OnRenderImage: textureSource is {textureSource}, " +
-            //    $"ColorImage size is {ColorImage.width} {ColorImage.height}, " +
-            //    $"ViewRenderTexture size is {ViewRenderTexture.width} {ViewRenderTexture.height}");
-
-            Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
-            isFrameBeingProcessed = false;
-        }
-    }
 }
