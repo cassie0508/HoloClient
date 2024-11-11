@@ -192,17 +192,16 @@ namespace Kinect4Azure
 
         private void OnFrameReceived(byte[] msg)
         {
+            if (isProcessingFrame) return;
+            isProcessingFrame = true;
+
             long timestamp = BitConverter.ToInt64(msg, 0);
             byte[] data = new byte[msg.Length - sizeof(long)];
             Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
 
             long receivedTimestamp = DateTime.UtcNow.Ticks;
             double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
-            Debug.Log($"Receiving delay: {delayMilliseconds} ms ------------------");
-
-            if (isProcessingFrame) return;
-
-            isProcessingFrame = true;
+            Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
 
             lock (dataLock)
             {
