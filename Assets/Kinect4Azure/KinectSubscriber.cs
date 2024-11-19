@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using System.Linq;
 using System.Collections.Generic;   // For List<>
 using PubSub;
+using NetMQ.Sockets;
+using System.Collections;
 
 namespace Kinect4Azure
 {
@@ -53,12 +55,19 @@ namespace Kinect4Azure
 
         [Header("UI Display")]
         public TextMeshProUGUI ByteLengthTMP;
+        public TextMeshProUGUI TimeTMP;
         public RawImage CameraReceivedIndicator;
+        public RawImage DebugImage;
 
         [SerializeField] private string host;
-        [SerializeField] private string port = "55555";
+        [SerializeField] private string port = "12345";
 
-        private Subscriber subscriber;
+        private RequestSocket requestSocket;
+
+        private bool hasReceivedCamera = false;
+        private bool hasReceivedLookup1 = false;
+        private bool hasReceivedLookup2 = false;
+        private bool hasReceivedLookup3 = false;
 
         private byte[] xyLookupDataPart1;
         private byte[] xyLookupDataPart2;
@@ -66,12 +75,13 @@ namespace Kinect4Azure
 
         private bool isProcessingFrame = false;
         private bool hasReceivedFirstFrame = false;
-        private bool hasReceivedCamera = false;
-        private bool hasReceivedLookup = false;
 
         private static byte[] depthData;
         private static readonly object dataLock = new object();
         private static byte[] colorInDepthData;
+
+        private byte[] cameraData;
+
 
         // Buffers for PointCloud Compute Shader
         private Vector3[] vertexBuffer;
@@ -83,24 +93,151 @@ namespace Kinect4Azure
 
         public virtual void OnSetPointcloudProperties(Material pointcloudMat) { }
 
-        void Start()
+        private void Start()
+        {
+            InitializeSocket();
+
+            StartCoroutine(RequestDataLoop());
+        }
+
+        private void InitializeSocket()
         {
             try
             {
-                subscriber = new Subscriber(host, port);
-
-                subscriber.AddTopicCallback("Camera", data => OnCameraReceived(data));
-                subscriber.AddTopicCallback("Lookup1", data => OnLookupsReceived(data, 1));
-                subscriber.AddTopicCallback("Lookup2", data => OnLookupsReceived(data, 2));
-                subscriber.AddTopicCallback("Lookup3", data => OnLookupsReceived(data, 3));
-                subscriber.AddTopicCallback("Frame", data => OnFrameReceived(data));
-                Debug.Log("Subscriber setup complete with host: " + host + " and port: " + port);
+                AsyncIO.ForceDotNet.Force();
+                requestSocket = new RequestSocket();
+                requestSocket.Connect($"tcp://{host}:{port}");
+                Debug.Log("Connected to server");
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Debug.LogError("Failed to start subscriber: " + e.Message);
+                Debug.LogError($"Failed to connect socket: {ex.Message}");
             }
         }
+
+        private IEnumerator RequestDataLoop()
+        {
+            while (!hasReceivedCamera)
+            {
+                RequestCameraData();
+                yield return new WaitForSeconds(0.2f); // Retry every 200ms
+            }
+
+            while (!hasReceivedLookup1)
+            {
+                RequestLookupData(1);
+                yield return new WaitForSeconds(0.2f);
+            }
+
+            while (!hasReceivedLookup2)
+            {
+                RequestLookupData(2);
+                yield return new WaitForSeconds(0.2f);
+            }
+
+            while (!hasReceivedLookup3)
+            {
+                RequestLookupData(3);
+                yield return new WaitForSeconds(0.2f);
+            }
+
+            OnCameraReceived(cameraData);
+            OnLookupsReceived(xyLookupDataPart1, 1);
+            OnLookupsReceived(xyLookupDataPart2, 2);
+            OnLookupsReceived(xyLookupDataPart3, 3);
+
+
+            Debug.Log("All required data received. Starting frame requests.");
+            StartCoroutine(RequestFrameDataLoop());
+        }
+
+        private void RequestCameraData()
+        {
+            requestSocket.SendFrame("Camera");
+            if (requestSocket.TryReceiveFrameBytes(TimeSpan.FromSeconds(1), out var data))
+            {
+                Debug.Log($"Received Camera data: {data.Length} bytes");
+                cameraData = data;
+                hasReceivedCamera = true;
+            }
+            else
+            {
+                Debug.LogWarning("Camera data request timed out");
+            }
+        }
+
+        private void RequestLookupData(int part)
+        {
+            requestSocket.SendFrame($"Lookup{part}");
+            if (requestSocket.TryReceiveFrameBytes(TimeSpan.FromSeconds(1), out var data))
+            {
+                Debug.Log($"Received Lookup{part} data: {data.Length} bytes");
+                if (part == 1)
+                { xyLookupDataPart1 = data; hasReceivedLookup1 = true; }
+                if (part == 2)
+                { xyLookupDataPart2 = data; hasReceivedLookup2 = true; }
+                if (part == 3)
+                { xyLookupDataPart3 = data; hasReceivedLookup3 = true; }
+            }
+            else
+            {
+                Debug.LogWarning($"Lookup{part} data request timed out");
+            }
+        }
+
+        private IEnumerator RequestFrameDataLoop()
+        {
+            while (true)
+            {
+                RequestFrameData();
+                yield return null; // Frame requests as fast as possible
+            }
+        }
+
+        private void RequestFrameData()
+        {
+            requestSocket.SendFrame("Frame");
+            if (requestSocket.TryReceiveFrameBytes(TimeSpan.FromSeconds(1), out var msg))
+            {
+                Debug.Log($"Received Frame data: {msg.Length} bytes");
+
+                if (isProcessingFrame) return;
+                isProcessingFrame = true;
+
+                long timestamp = BitConverter.ToInt64(msg, 0);
+                byte[] data = new byte[msg.Length - sizeof(long)];
+                Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
+
+                long receivedTimestamp = DateTime.UtcNow.Ticks;
+                double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
+                Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
+
+                UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
+                {
+                    ByteLengthTMP.SetText($"Delay in requesting this frame: {delayMilliseconds}");
+                });
+
+                lock (dataLock)
+                {
+                    int depthDataLength = BitConverter.ToInt32(data, 0);
+                    int colorInDepthDataLength = BitConverter.ToInt32(data, sizeof(int));
+
+                    depthData = new byte[depthDataLength];
+                    Buffer.BlockCopy(data, sizeof(int) * 2, depthData, 0, depthDataLength);
+
+                    colorInDepthData = new byte[colorInDepthDataLength];
+                    Buffer.BlockCopy(data, sizeof(int) * 2 + depthDataLength, colorInDepthData, 0, colorInDepthDataLength);
+                }
+
+                isProcessingFrame = false;
+                hasReceivedFirstFrame = true;
+            }
+            else
+            {
+                Debug.LogWarning("Frame data request timed out");
+            }
+        }
+
 
         private void OnCameraReceived(byte[] data)
         {
@@ -184,7 +321,6 @@ namespace Kinect4Azure
                         dispatch_z = (1 + (int)zc - 1) / (int)zc;
                         Debug.Log("KinectSubscriber::OnLookupsReceived(): Kernel group sizes are " + xc + "-" + yc + "-" + zc);
 
-                        hasReceivedLookup = true;
                     }
                 }
             });
@@ -202,6 +338,11 @@ namespace Kinect4Azure
             long receivedTimestamp = DateTime.UtcNow.Ticks;
             double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
             Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
+
+            UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
+            {
+                ByteLengthTMP.SetText($"{delayMilliseconds}");
+            });
 
             lock (dataLock)
             {
@@ -222,9 +363,11 @@ namespace Kinect4Azure
 
         private void Update()
         {
-            if (hasReceivedCamera && hasReceivedLookup && hasReceivedFirstFrame)
+            if (hasReceivedCamera && hasReceivedLookup1 && hasReceivedLookup2 && hasReceivedLookup3 && hasReceivedFirstFrame)
             {
-                ByteLengthTMP.SetText($"{colorInDepthData.Length}");
+                long timeBegin = DateTime.UtcNow.Ticks;
+                
+
                 lock (dataLock)
                 {
                     DepthImage.LoadRawTextureData(depthData.ToArray());
@@ -232,6 +375,8 @@ namespace Kinect4Azure
 
                     ColorInDepthImage.LoadRawTextureData(colorInDepthData.ToArray());
                     ColorInDepthImage.Apply();
+
+                    DebugImage.texture = ColorInDepthImage;
                 }
 
                 // Compute triangulation of PointCloud + maybe duplicate depending on the shader
@@ -243,6 +388,10 @@ namespace Kinect4Azure
                 int pixel_count = DepthImage.width * DepthImage.height;
                 OnSetPointcloudProperties(_Buffer2SurfaceMaterial);
                 Graphics.DrawProcedural(_Buffer2SurfaceMaterial, new Bounds(transform.position, Vector3.one * 10), MeshTopology.Triangles, pixel_count * 6);
+
+                long timeEnd = DateTime.UtcNow.Ticks;
+                double timeDiff = (timeEnd - timeBegin) / TimeSpan.TicksPerMillisecond;
+                TimeTMP.SetText($"Time in rendering this frame: {timeDiff}");
             }
         }
 
@@ -370,11 +519,10 @@ namespace Kinect4Azure
         private void OnDestroy()
         {
             Debug.Log("Destroying subscriber...");
-            if (subscriber != null)
-            {
-                subscriber.Dispose();
-                subscriber = null;
-            }
+
+            requestSocket.Dispose();
+            NetMQConfig.Cleanup(false);
+            requestSocket = null;
         }
     }
 }
