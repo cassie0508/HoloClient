@@ -7,13 +7,13 @@ using UnityEngine;
 public class PBM_CaptureCamera : MonoBehaviour
 {
     [SerializeField] private string host;
-    [SerializeField] private string port = "12345";
+    [SerializeField] private string port = "55555";
     private Subscriber subscriber;
 
     [Header("Feed the camera texture into ColorImage. \nConfigure the Camera component to use the physical Camera property. \nMatch the sensor size with the camera resolution and configure the FoV/FocalLength."), Space]
     [SerializeField] private Texture2D ColorImage;
     private Texture2D textureSource;
-    private static byte[] ColorImageData;
+    private byte[] colorImageData;
     private static readonly object dataLock = new object();
 
     [Header("Resulting View (leave empty)")]
@@ -70,9 +70,6 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     private bool isProcessingFrame = false;
     private bool hasReceivedFirstFrame = false;
-
-    private float lastRenderTime = 0f;
-    private const float renderInterval = 0.2f;
 
     private void Awake()
     {
@@ -136,6 +133,8 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     private void OnColorFrameReceived(byte[] msg)
     {
+        if (ColorImage == null) return;
+
         if (isProcessingFrame) return;
         isProcessingFrame = true;
 
@@ -149,7 +148,7 @@ public class PBM_CaptureCamera : MonoBehaviour
 
         lock (dataLock)
         {
-            ColorImageData = data;
+            colorImageData = data;
         }
             
         isProcessingFrame = false;
@@ -171,14 +170,11 @@ public class PBM_CaptureCamera : MonoBehaviour
     // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        //if (Time.time - lastRenderTime < renderInterval) return;
-        //lastRenderTime = Time.time;
-
-        if (ColorImage != null && hasReceivedFirstFrame)
+        if (colorImageData != null && hasReceivedFirstFrame)
         {
             lock (dataLock)
             {
-                ColorImage.LoadRawTextureData(ColorImageData);
+                ColorImage.LoadRawTextureData(colorImageData);
                 ColorImage.Apply();
             }
 

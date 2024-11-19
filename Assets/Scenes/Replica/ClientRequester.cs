@@ -10,11 +10,22 @@ using System.Collections.Generic;   // For List<>
 using PubSub;
 using NetMQ.Sockets;
 using System.Collections;
+using UnityEditor.Experimental.GraphView;
 
 namespace Kinect4Azure
 {
-    public class KinectSubscriber : MonoBehaviour
+    public class ClientRequester : MonoBehaviour
     {
+        [Header("Networking")]
+        [SerializeField] private string host;
+        [SerializeField] private string port = "12345";
+        private RequestSocket requestSocket;
+
+        [Header("UI Display")]
+        public TextMeshProUGUI DelayTMP;
+        public TextMeshProUGUI RenderTMP;
+        public RawImage DebugImage;
+
         [Serializable]
         public struct PointcloudShader
         {
@@ -53,35 +64,19 @@ namespace Kinect4Azure
         [SerializeField] private Texture2D DepthImage;
         [SerializeField] private Texture2D ColorInDepthImage;
 
-        [Header("UI Display")]
-        public TextMeshProUGUI ByteLengthTMP;
-        public TextMeshProUGUI TimeTMP;
-        public RawImage CameraReceivedIndicator;
-        public RawImage DebugImage;
+        private byte[] cameraData;
+        private byte[] xyLookupDataPart1;
+        private byte[] xyLookupDataPart2;
+        private byte[] xyLookupDataPart3;
 
-        [SerializeField] private string host;
-        [SerializeField] private string port = "12345";
-
-        private RequestSocket requestSocket;
+        private byte[] depthData;
+        private byte[] colorInDepthData;
+        private static readonly object dataLock = new object();
 
         private bool hasReceivedCamera = false;
         private bool hasReceivedLookup1 = false;
         private bool hasReceivedLookup2 = false;
         private bool hasReceivedLookup3 = false;
-
-        private byte[] xyLookupDataPart1;
-        private byte[] xyLookupDataPart2;
-        private byte[] xyLookupDataPart3;
-
-        private bool isProcessingFrame = false;
-        private bool hasReceivedFirstFrame = false;
-
-        private static byte[] depthData;
-        private static readonly object dataLock = new object();
-        private static byte[] colorInDepthData;
-
-        private byte[] cameraData;
-
 
         // Buffers for PointCloud Compute Shader
         private Vector3[] vertexBuffer;
@@ -96,7 +91,6 @@ namespace Kinect4Azure
         private void Start()
         {
             InitializeSocket();
-
             StartCoroutine(RequestDataLoop());
         }
 
@@ -141,13 +135,8 @@ namespace Kinect4Azure
                 yield return new WaitForSeconds(0.2f);
             }
 
-            OnCameraReceived(cameraData);
-            OnLookupsReceived(xyLookupDataPart1, 1);
-            OnLookupsReceived(xyLookupDataPart2, 2);
-            OnLookupsReceived(xyLookupDataPart3, 3);
-
-
-            Debug.Log("All required data received. Starting frame requests.");
+            Debug.Log("All required data received.");
+            ProcessInitialData();
             StartCoroutine(RequestFrameDataLoop());
         }
 
@@ -185,189 +174,114 @@ namespace Kinect4Azure
             }
         }
 
+        private void ProcessInitialData()
+        {
+            /* Process camera data */
+            try
+            {
+                int calibrationDataLength = BitConverter.ToInt32(cameraData, 0);
+                int cameraSizeDataLength = BitConverter.ToInt32(cameraData, sizeof(int) * 1);
+
+                byte[] calibrationData = new byte[calibrationDataLength];
+                Buffer.BlockCopy(cameraData, sizeof(int) * 2, calibrationData, 0, calibrationDataLength);
+                byte[] cameraSizeData = new byte[cameraSizeDataLength];
+                Buffer.BlockCopy(cameraData, sizeof(int) * 2 + calibrationDataLength, cameraSizeData, 0, cameraSizeDataLength);
+
+                int[] captureArray = new int[6];
+                Buffer.BlockCopy(cameraSizeData, 0, captureArray, 0, cameraSizeData.Length);
+                ColorWidth = captureArray[0];
+                ColorHeight = captureArray[1];
+                DepthWidth = captureArray[2];
+                DepthHeight = captureArray[3];
+                IRWidth = captureArray[4];
+                IRHeight = captureArray[5];
+
+                SetupTextures(ref DepthImage, ref ColorInDepthImage);
+
+                Color2DepthCalibration = ByteArrayToMatrix4x4(calibrationData);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("Error in OnCameraReceived: " + e.Message);
+            }
+
+            /* Process lookup data */
+            byte[] xyLookupData = new byte[xyLookupDataPart1.Length + xyLookupDataPart2.Length + xyLookupDataPart3.Length];
+            System.Buffer.BlockCopy(xyLookupDataPart1, 0, xyLookupData, 0, xyLookupDataPart1.Length);
+            System.Buffer.BlockCopy(xyLookupDataPart2, 0, xyLookupData, xyLookupDataPart1.Length, xyLookupDataPart2.Length);
+            System.Buffer.BlockCopy(xyLookupDataPart3, 0, xyLookupData, xyLookupDataPart1.Length + xyLookupDataPart2.Length, xyLookupDataPart3.Length);
+
+            XYLookup = new Texture2D(DepthImage.width, DepthImage.height, TextureFormat.RGBAFloat, false);
+            XYLookup.LoadRawTextureData(xyLookupData);
+            XYLookup.Apply();
+
+            if (!SetupShaders(57 /*Standard Kinect Depth FoV*/, DepthImage.width, DepthImage.height, out kernel))
+            {
+                Debug.LogError("OnLookupsReceived(): Something went wrong while setting up shaders");
+                return;
+            }
+
+            // Compute kernel group sizes. If it deviates from 32-32-1, this need to be adjusted inside Depth2Buffer.compute as well.
+            Depth2BufferShader.GetKernelThreadGroupSizes(kernel, out var xc, out var yc, out var zc);
+
+            dispatch_x = (DepthImage.width + (int)xc - 1) / (int)xc;
+            dispatch_y = (DepthImage.height + (int)yc - 1) / (int)yc;
+            dispatch_z = (1 + (int)zc - 1) / (int)zc;
+            Debug.Log("OnLookupsReceived(): Kernel group sizes are " + xc + "-" + yc + "-" + zc);
+        }
+
         private IEnumerator RequestFrameDataLoop()
         {
             while (true)
             {
-                RequestFrameData();
-                yield return null; // Frame requests as fast as possible
-            }
-        }
+                requestSocket.SendFrame("Frame");
 
-        private void RequestFrameData()
-        {
-            requestSocket.SendFrame("Frame");
-            if (requestSocket.TryReceiveFrameBytes(TimeSpan.FromSeconds(1), out var msg))
-            {
-                Debug.Log($"Received Frame data: {msg.Length} bytes");
-
-                if (isProcessingFrame) return;
-                isProcessingFrame = true;
-
-                long timestamp = BitConverter.ToInt64(msg, 0);
-                byte[] data = new byte[msg.Length - sizeof(long)];
-                Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
-
-                long receivedTimestamp = DateTime.UtcNow.Ticks;
-                double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
-                Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
-
-                UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
+                if (requestSocket.TryReceiveFrameBytes(TimeSpan.FromSeconds(1), out var msg))
                 {
-                    ByteLengthTMP.SetText($"Delay in requesting this frame: {delayMilliseconds}");
-                });
+                    Debug.Log($"Received Frame data: {msg.Length} bytes");
 
-                lock (dataLock)
-                {
-                    int depthDataLength = BitConverter.ToInt32(data, 0);
-                    int colorInDepthDataLength = BitConverter.ToInt32(data, sizeof(int));
+                    // Get delay
+                    long timestamp = BitConverter.ToInt64(msg, 0);
+                    byte[] data = new byte[msg.Length - sizeof(long)];
+                    Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
 
-                    depthData = new byte[depthDataLength];
-                    Buffer.BlockCopy(data, sizeof(int) * 2, depthData, 0, depthDataLength);
-
-                    colorInDepthData = new byte[colorInDepthDataLength];
-                    Buffer.BlockCopy(data, sizeof(int) * 2 + depthDataLength, colorInDepthData, 0, colorInDepthDataLength);
-                }
-
-                isProcessingFrame = false;
-                hasReceivedFirstFrame = true;
-            }
-            else
-            {
-                Debug.LogWarning("Frame data request timed out");
-            }
-        }
-
-
-        private void OnCameraReceived(byte[] data)
-        {
-            Debug.Log("On Camera Received: Data length : " + data.Length);
-
-            UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
-            {
-                if (CameraReceivedIndicator)
-                    CameraReceivedIndicator.color = Color.green;
-
-                try
-                {
-                    // Parse camera data
-                    int calibrationDataLength = BitConverter.ToInt32(data, 0);
-                    int cameraSizeDataLength = BitConverter.ToInt32(data, sizeof(int) * 1);
-
-                    byte[] calibrationData = new byte[calibrationDataLength];
-                    Buffer.BlockCopy(data, sizeof(int) * 2, calibrationData, 0, calibrationDataLength);
-                    byte[] cameraSizeData = new byte[cameraSizeDataLength];
-                    Buffer.BlockCopy(data, sizeof(int) * 2 + calibrationDataLength, cameraSizeData, 0, cameraSizeDataLength);
-
-                    // Setup texture
-                    int[] captureArray = new int[6];
-                    Buffer.BlockCopy(cameraSizeData, 0, captureArray, 0, cameraSizeData.Length);
-                    ColorWidth = captureArray[0];
-                    ColorHeight = captureArray[1];
-                    DepthWidth = captureArray[2];
-                    DepthHeight = captureArray[3];
-                    IRWidth = captureArray[4];
-                    IRHeight = captureArray[5];
-
-                    SetupTextures(ref DepthImage, ref ColorInDepthImage);
-
-                    Color2DepthCalibration = ByteArrayToMatrix4x4(calibrationData);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError("Error in OnCameraReceived: " + e.Message);
-                }
-            });
-
-            hasReceivedCamera = true;
-        }
-
-        private void OnLookupsReceived(byte[] data, int part)
-        {
-            Debug.Log("On Lookup Received part: " + part + " with length " + data.Length);
-
-            UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
-            {
-                if (part == 1) xyLookupDataPart1 = data;
-                if (part == 2) xyLookupDataPart2 = data;
-                if (part == 3)
-                {
-                    xyLookupDataPart3 = data;
-
-                    byte[] xyLookupData = new byte[xyLookupDataPart1.Length + xyLookupDataPart2.Length + xyLookupDataPart3.Length];
-                    System.Buffer.BlockCopy(xyLookupDataPart1, 0, xyLookupData, 0, xyLookupDataPart1.Length);
-                    System.Buffer.BlockCopy(xyLookupDataPart2, 0, xyLookupData, xyLookupDataPart1.Length, xyLookupDataPart2.Length);
-                    System.Buffer.BlockCopy(xyLookupDataPart3, 0, xyLookupData, xyLookupDataPart1.Length + xyLookupDataPart2.Length, xyLookupDataPart3.Length);
-
-                    if (XYLookup == null)
+                    long receivedTimestamp = DateTime.UtcNow.Ticks;
+                    double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
+                    Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
+                    UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
                     {
-                        XYLookup = new Texture2D(DepthImage.width, DepthImage.height, TextureFormat.RGBAFloat, false);
-                        XYLookup.LoadRawTextureData(xyLookupData);
-                        XYLookup.Apply();
+                        DelayTMP.SetText($"Delay in requesting this frame: {delayMilliseconds}");
+                    });
 
-                        Debug.Log("XYLookup data length " + xyLookupData.Length);
+                    // Get data
+                    lock (dataLock)
+                    {
+                        int depthDataLength = BitConverter.ToInt32(data, 0);
+                        int colorInDepthDataLength = BitConverter.ToInt32(data, sizeof(int));
 
-                        if (!SetupShaders(57 /*Standard Kinect Depth FoV*/, DepthImage.width, DepthImage.height, out kernel))
-                        {
-                            Debug.LogError("KinectSubscriber::OnLookupsReceived(): Something went wrong while setting up shaders");
-                            return;
-                        }
+                        depthData = new byte[depthDataLength];
+                        Buffer.BlockCopy(data, sizeof(int) * 2, depthData, 0, depthDataLength);
 
-                        // Compute kernel group sizes. If it deviates from 32-32-1, this need to be adjusted inside Depth2Buffer.compute as well.
-                        Depth2BufferShader.GetKernelThreadGroupSizes(kernel, out var xc, out var yc, out var zc);
-
-                        dispatch_x = (DepthImage.width + (int)xc - 1) / (int)xc;
-                        dispatch_y = (DepthImage.height + (int)yc - 1) / (int)yc;
-                        dispatch_z = (1 + (int)zc - 1) / (int)zc;
-                        Debug.Log("KinectSubscriber::OnLookupsReceived(): Kernel group sizes are " + xc + "-" + yc + "-" + zc);
-
+                        colorInDepthData = new byte[colorInDepthDataLength];
+                        Buffer.BlockCopy(data, sizeof(int) * 2 + depthDataLength, colorInDepthData, 0, colorInDepthDataLength);
                     }
                 }
-            });
-        }
+                else
+                {
+                    Debug.LogWarning("Frame data request timed out");
+                }
 
-        private void OnFrameReceived(byte[] msg)
-        {
-            if (isProcessingFrame) return;
-            isProcessingFrame = true;
-
-            long timestamp = BitConverter.ToInt64(msg, 0);
-            byte[] data = new byte[msg.Length - sizeof(long)];
-            Buffer.BlockCopy(msg, sizeof(long), data, 0, data.Length);
-
-            long receivedTimestamp = DateTime.UtcNow.Ticks;
-            double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
-            Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
-
-            UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
-            {
-                ByteLengthTMP.SetText($"{delayMilliseconds}");
-            });
-
-            lock (dataLock)
-            {
-                int depthDataLength = BitConverter.ToInt32(data, 0);
-                int colorInDepthDataLength = BitConverter.ToInt32(data, sizeof(int));
-
-                depthData = new byte[depthDataLength];
-                Buffer.BlockCopy(data, sizeof(int) * 2, depthData, 0, depthDataLength);
-
-                colorInDepthData = new byte[colorInDepthDataLength];
-                Buffer.BlockCopy(data, sizeof(int) * 2 + depthDataLength, colorInDepthData, 0, colorInDepthDataLength);
+                yield return null; // Frame requests as fast as possible
             }
-
-            isProcessingFrame = false;
-            hasReceivedFirstFrame = true;
         }
 
 
         private void Update()
         {
-            if (hasReceivedCamera && hasReceivedLookup1 && hasReceivedLookup2 && hasReceivedLookup3 && hasReceivedFirstFrame)
+            if (depthData != null && colorInDepthData != null)
             {
                 long timeBegin = DateTime.UtcNow.Ticks;
                 
-
                 lock (dataLock)
                 {
                     DepthImage.LoadRawTextureData(depthData.ToArray());
@@ -391,10 +305,9 @@ namespace Kinect4Azure
 
                 long timeEnd = DateTime.UtcNow.Ticks;
                 double timeDiff = (timeEnd - timeBegin) / TimeSpan.TicksPerMillisecond;
-                TimeTMP.SetText($"Time in rendering this frame: {timeDiff}");
+                RenderTMP.SetText($"Time in rendering this frame: {timeDiff}");
             }
         }
-
 
         private void SetupTextures(ref Texture2D Depth, ref Texture2D ColorInDepth)
         {
@@ -406,7 +319,20 @@ namespace Kinect4Azure
                 ColorInDepth = new Texture2D(IRWidth, IRHeight, TextureFormat.BGRA32, false);
         }
 
-        // call after SetupTextures
+        private Matrix4x4 ByteArrayToMatrix4x4(byte[] byteArray)
+        {
+            float[] matrixFloats = new float[16];
+            Buffer.BlockCopy(byteArray, 0, matrixFloats, 0, byteArray.Length);
+
+            Matrix4x4 matrix = new Matrix4x4();
+            for (int i = 0; i < 16; i++)
+            {
+                matrix[i] = matrixFloats[i];
+            }
+
+            return matrix;
+        }
+
         private bool SetupShaders(float foV, int texWidth, int texHeight, out int kernelID)
         {
             kernelID = 0;
@@ -500,21 +426,6 @@ namespace Kinect4Azure
 
             return true;
         }
-
-        private Matrix4x4 ByteArrayToMatrix4x4(byte[] byteArray)
-        {
-            float[] matrixFloats = new float[16];
-            Buffer.BlockCopy(byteArray, 0, matrixFloats, 0, byteArray.Length);
-
-            Matrix4x4 matrix = new Matrix4x4();
-            for (int i = 0; i < 16; i++)
-            {
-                matrix[i] = matrixFloats[i];
-            }
-
-            return matrix;
-        }
-
 
         private void OnDestroy()
         {

@@ -6,10 +6,10 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 0
-    path: Assets/Example/Mirror_SampleScene.unity
+    path: Assets/Scenes/Mirror/Mirror_SampleScene.unity
     guid: 8086e48a5dea23c4a99443d61f203387
   - enabled: 1
-    path: Assets/Example/Replica_SampleScene.unity
+    path: Assets/Scenes/Replica/Replica_SampleScene.unity
     guid: 9fc0d4010bbf28b4594072e72b8655ab
   m_configObjects:
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 13e006632d85152479a0fd5af062ff4c, type: 2}
