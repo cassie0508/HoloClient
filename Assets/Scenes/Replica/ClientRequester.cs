@@ -10,7 +10,6 @@ using System.Collections.Generic;   // For List<>
 using PubSub;
 using NetMQ.Sockets;
 using System.Collections;
-using UnityEditor.Experimental.GraphView;
 
 namespace Kinect4Azure
 {

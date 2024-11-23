@@ -12,6 +12,7 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     [Header("Feed the camera texture into ColorImage. \nConfigure the Camera component to use the physical Camera property. \nMatch the sensor size with the camera resolution and configure the FoV/FocalLength."), Space]
     [SerializeField] private Texture2D ColorImage;
+    [SerializeField] private Matrix4x4 kinectToImageTargetMatrix;
     private Texture2D textureSource;
     private byte[] colorImageData;
     private static readonly object dataLock = new object();
@@ -95,6 +96,7 @@ public class PBM_CaptureCamera : MonoBehaviour
         try
         {
             subscriber = new Subscriber(host, port);
+            subscriber.AddTopicCallback("Calibration", data => OnCalibrationReceived(data));
             subscriber.AddTopicCallback("Size", data => OnColorSizeReceived(data));
             subscriber.AddTopicCallback("Frame", data => OnColorFrameReceived(data));
             Debug.Log("Subscriber setup complete with host: " + host + " and port: " + port);
@@ -103,6 +105,11 @@ public class PBM_CaptureCamera : MonoBehaviour
         {
             Debug.LogError("Failed to start subscriber: " + e.Message);
         }
+    }
+
+    private void OnCalibrationReceived(byte[] data)
+    {
+        kinectToImageTargetMatrix = ByteArrayToMatrix4x4(data);
     }
 
     private void OnColorSizeReceived(byte[] data)
@@ -219,6 +226,20 @@ public class PBM_CaptureCamera : MonoBehaviour
             Vector3.forward);
 
         return angleObjectToForward < theta_critical / 2;
+    }
+
+    private Matrix4x4 ByteArrayToMatrix4x4(byte[] byteArray)
+    {
+        float[] matrixFloats = new float[16];
+        Buffer.BlockCopy(byteArray, 0, matrixFloats, 0, byteArray.Length);
+
+        Matrix4x4 matrix = new Matrix4x4();
+        for (int i = 0; i < 16; i++)
+        {
+            matrix[i] = matrixFloats[i];
+        }
+
+        return matrix;
     }
 
     private float GetCompensationRatio(Vector3 ObserverWorldpos)
