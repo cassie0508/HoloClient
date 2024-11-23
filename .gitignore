@@ -12,6 +12,9 @@ Build2/
 BuildReplica/
 BuildMirror/
 
+Packages/com.ptc.vuforia.engine-10.27.3.tgz
+Assets/Editor/
+
 # Visual Studio cache directory
 .vs/
 *.vsconfig
