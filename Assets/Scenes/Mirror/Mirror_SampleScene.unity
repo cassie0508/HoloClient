@@ -513,7 +513,7 @@ GameObject:
   - component: {fileID: 1008496950}
   - component: {fileID: 1008496949}
   - component: {fileID: 1008496948}
-  - component: {fileID: 1008496947}
+  - component: {fileID: 1008496951}
   m_Layer: 0
   m_Name: ImageTarget
   m_TagString: Untagged
@@ -521,25 +521,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1008496947
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1008496946}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 1778676317, guid: 8a9a760f95896c34689febc965510927, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  mObserverBehaviour: {fileID: 1008496949}
-  mHiddenRoot: {fileID: 0}
-  mTargetName: marker
-  mDatasetName: Vuforia/marker.xml
-  mCastedBehaviour: {fileID: 1008496949}
-  mMeshFilter: {fileID: 0}
-  mMeshRenderer: {fileID: 0}
 --- !u!114 &1008496948
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -610,7 +591,7 @@ MonoBehaviour:
   mMotionHint: 1
   mTrackingOptimization: 0
   mTrackingOptimizationNeedsUpgrade: 0
-  mPreview: {fileID: 1008496947}
+  mPreview: {fileID: 1008496951}
 --- !u!4 &1008496950
 Transform:
   m_ObjectHideFlags: 0
@@ -626,6 +607,25 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1008496951
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1008496946}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 1778676317, guid: 8a9a760f95896c34689febc965510927, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  mObserverBehaviour: {fileID: 1008496949}
+  mHiddenRoot: {fileID: 0}
+  mTargetName: marker
+  mDatasetName: Vuforia/marker.xml
+  mCastedBehaviour: {fileID: 1008496949}
+  mMeshFilter: {fileID: 0}
+  mMeshRenderer: {fileID: 0}
 --- !u!1 &1514893813
 GameObject:
   m_ObjectHideFlags: 0
@@ -676,13 +676,43 @@ MonoBehaviour:
     e31: 0
     e32: 0
     e33: 0
+  hololensToImageTargetMatrix:
+    e00: 0
+    e01: 0
+    e02: 0
+    e03: 0
+    e10: 0
+    e11: 0
+    e12: 0
+    e13: 0
+    e20: 0
+    e21: 0
+    e22: 0
+    e23: 0
+    e30: 0
+    e31: 0
+    e32: 0
+    e33: 0
+  hololensToKinectMatrix:
+    e00: 0
+    e01: 0
+    e02: 0
+    e03: 0
+    e10: 0
+    e11: 0
+    e12: 0
+    e13: 0
+    e20: 0
+    e21: 0
+    e22: 0
+    e23: 0
+    e30: 0
+    e31: 0
+    e32: 0
+    e33: 0
+  arCamera: {fileID: 2070428758}
+  imageTarget: {fileID: 1008496946}
   ViewRenderTexture: {fileID: 0}
-  Frustum:
-    Enabled: 1
-    LineColor: {r: 0, g: 1, b: 0, a: 1}
-    LineWidth: 0.01
-    MinDepth: 0.1
-    MaxDepth: 5
 --- !u!20 &1514893815
 Camera:
   m_ObjectHideFlags: 0

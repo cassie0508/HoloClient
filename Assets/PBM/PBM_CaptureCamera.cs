@@ -2,6 +2,7 @@
 using System;
 using System.Text.RegularExpressions;
 using UnityEngine;
+using Vuforia;
 
 [RequireComponent(typeof(Camera))]
 public class PBM_CaptureCamera : MonoBehaviour
@@ -12,10 +13,19 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     [Header("Feed the camera texture into ColorImage. \nConfigure the Camera component to use the physical Camera property. \nMatch the sensor size with the camera resolution and configure the FoV/FocalLength."), Space]
     [SerializeField] private Texture2D ColorImage;
-    [SerializeField] private Matrix4x4 kinectToImageTargetMatrix;
     private Texture2D textureSource;
     private byte[] colorImageData;
     private static readonly object dataLock = new object();
+
+    [Header("Calibration")]
+    [SerializeField] private Matrix4x4 kinectToImageTargetMatrix;
+    [SerializeField] private Matrix4x4 hololensToImageTargetMatrix;
+    [SerializeField] private Matrix4x4 hololensToKinectMatrix;
+
+    [Header("AR Camera Settings")]
+    [SerializeField] private GameObject arCamera; // Reference to the Vuforia AR Camera
+    [SerializeField] private GameObject imageTarget; // Reference to the Image Target
+    private ObserverBehaviour targetObserver;
 
     [Header("Resulting View (leave empty)")]
     public RenderTexture ViewRenderTexture;
@@ -84,6 +94,8 @@ public class PBM_CaptureCamera : MonoBehaviour
         ViewRenderTexture = new RenderTexture(_Width, _Height, 24);
         ViewRenderTexture.name = "PBMView";
         ViewRenderTexture.Create();
+
+        targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
     }
 
     private void Start()
@@ -170,6 +182,13 @@ public class PBM_CaptureCamera : MonoBehaviour
     // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
+        if(targetObserver != null && targetObserver.TargetStatus.Status == Status.TRACKED)
+        {
+            hololensToImageTargetMatrix = GetHololensToImageTargetMatrix(targetObserver);
+            hololensToKinectMatrix = hololensToImageTargetMatrix * (kinectToImageTargetMatrix.inverse);
+        }
+        
+
         if (colorImageData != null && hasReceivedFirstFrame)
         {
             lock (dataLock)
@@ -191,6 +210,20 @@ public class PBM_CaptureCamera : MonoBehaviour
 
             Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
         }
+    }
+
+    private Matrix4x4 GetHololensToImageTargetMatrix(ObserverBehaviour targetObserver)
+    {
+        // Retrieve the transformation matrix from AR Camera to Image Target
+        Transform arTransform = arCamera.transform;
+        Transform targetTransform = targetObserver.transform;
+
+        // Calculate the relative matrix (Kinect's position and rotation relative to Image Target)
+        return Matrix4x4.TRS(
+            targetTransform.position - arTransform.position,
+            Quaternion.Inverse(arTransform.rotation) * targetTransform.rotation,
+            Vector3.one
+        );
     }
 
     private bool IsValidObserverPosition(Vector3 worldPos)
