@@ -66,9 +66,6 @@ public class PBM_CaptureCamera : MonoBehaviour
     private float CompensationRatio = 1;
     #endregion
 
-    [Space]
-    public PBM_CameraFrustum Frustum;
-
     private bool isProcessingFrame = false;
     private bool hasReceivedFirstFrame = false;
 
@@ -87,8 +84,6 @@ public class PBM_CaptureCamera : MonoBehaviour
         ViewRenderTexture = new RenderTexture(_Width, _Height, 24);
         ViewRenderTexture.name = "PBMView";
         ViewRenderTexture.Create();
-
-        Frustum.Create(LayerMask.NameToLayer("PBM"), transform);
     }
 
     private void Start()
@@ -170,8 +165,6 @@ public class PBM_CaptureCamera : MonoBehaviour
     private void LateUpdate()
     {
         _Camera.Render();
-
-        Frustum.UpdateFrustum(_Camera.focalLength, _Camera.sensorSize.x, _Camera.sensorSize.y);
     }
 
     // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
