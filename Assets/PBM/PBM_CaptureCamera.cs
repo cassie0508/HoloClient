@@ -25,6 +25,7 @@ public class PBM_CaptureCamera : MonoBehaviour
     [Header("AR Camera Settings")]
     [SerializeField] private GameObject arCamera; // Reference to the Vuforia AR Camera
     [SerializeField] private GameObject imageTarget; // Reference to the Image Target
+    [SerializeField] private GameObject cube;
     private ObserverBehaviour targetObserver;
 
     [Header("Resulting View (leave empty)")]
@@ -182,12 +183,12 @@ public class PBM_CaptureCamera : MonoBehaviour
     // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        if(targetObserver != null && targetObserver.TargetStatus.Status == Status.TRACKED)
+        if (targetObserver != null && targetObserver.TargetStatus.Status == Status.TRACKED)
         {
             hololensToImageTargetMatrix = GetHololensToImageTargetMatrix(targetObserver);
             hololensToKinectMatrix = hololensToImageTargetMatrix * (kinectToImageTargetMatrix.inverse);
         }
-        
+
 
         if (colorImageData != null && hasReceivedFirstFrame)
         {
@@ -197,18 +198,58 @@ public class PBM_CaptureCamera : MonoBehaviour
                 ColorImage.Apply();
             }
 
-            if (textureSource == null)
-            {
-                textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
-            }
-            RenderTexture.active = source;
-            textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-            textureSource.Apply();
+            //if (textureSource == null)
+            //{
+            //    textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
+            //}
+            //RenderTexture.active = source;
+            //textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            //textureSource.Apply();
 
+            // Step 1: Get Cube's 3D position in Kinect space
+            if (cube != null)
+            {
+                Vector3 cubeWorldPosition = cube.transform.position;
+                Debug.Log($"cubeWorldPosition is {cubeWorldPosition}");
+
+                // Transform to Kinect space
+                Vector3 kinectPosition = hololensToKinectMatrix.MultiplyPoint(cubeWorldPosition);
+
+                // Project Kinect position to 2D screen space
+                Vector3 screenPosition = _Camera.WorldToScreenPoint(kinectPosition);
+
+                if (screenPosition.z > 0) // Only process if the point is in front of the camera
+                {
+                    // Map screen coordinates to ColorImage texture space
+                    int pixelX = Mathf.RoundToInt(screenPosition.x / _Camera.pixelWidth * ColorImage.width);
+                    int pixelY = Mathf.RoundToInt(screenPosition.y / _Camera.pixelHeight * ColorImage.height);
+
+                    // Step 3: Draw a rectangle on the ColorImage
+                    int rectSize = 10; // Size of the 2D cube representation
+                    DrawRectangleOnTexture(ColorImage, pixelX, pixelY, rectSize, Color.red);
+                    ColorImage.Apply();
+                }
+            }
+
+            // Render the merged result
             RealVirtualMergeMaterial.mainTexture = source;
             RealVirtualMergeMaterial.SetTexture("_RealContentTex", ColorImage);
 
             Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
+        }
+    }
+
+    // Helper function to draw a rectangle on a Texture2D
+    private void DrawRectangleOnTexture(Texture2D texture, int x, int y, int size, Color color)
+    {
+        for (int i = -size; i <= size; i++)
+        {
+            for (int j = -size; j <= size; j++)
+            {
+                int drawX = Mathf.Clamp(x + i, 0, texture.width - 1);
+                int drawY = Mathf.Clamp(y + j, 0, texture.height - 1);
+                texture.SetPixel(drawX, drawY, color);
+            }
         }
     }
 
