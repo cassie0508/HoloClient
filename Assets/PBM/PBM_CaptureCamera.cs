@@ -148,7 +148,10 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     private void OnColorFrameReceived(byte[] msg)
     {
-        if (ColorImage == null) return;
+        UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
+        {
+            if (ColorImage == null) return;
+        });
 
         if (isProcessingFrame) return;
         isProcessingFrame = true;
@@ -159,7 +162,7 @@ public class PBM_CaptureCamera : MonoBehaviour
 
         long receivedTimestamp = DateTime.UtcNow.Ticks;
         double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
-        Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
+        //Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
 
         lock (dataLock)
         {
@@ -188,7 +191,7 @@ public class PBM_CaptureCamera : MonoBehaviour
             hololensToImageTargetMatrix = GetHololensToImageTargetMatrix(targetObserver);
             hololensToKinectMatrix = hololensToImageTargetMatrix * (kinectToImageTargetMatrix.inverse);
         }
-
+        // hlworld2Kinect = hlworld2imagetarget * kinectToImageTargetMatrix.inverse 
 
         if (colorImageData != null && hasReceivedFirstFrame)
         {
@@ -210,7 +213,7 @@ public class PBM_CaptureCamera : MonoBehaviour
             if (cube != null)
             {
                 Vector3 cubeWorldPosition = cube.transform.position;
-                Debug.Log($"cubeWorldPosition is {cubeWorldPosition}");
+                //Debug.Log($"cubeWorldPosition is {cubeWorldPosition}");
 
                 // Transform to Kinect space
                 Vector3 kinectPosition = hololensToKinectMatrix.MultiplyPoint(cubeWorldPosition);
@@ -226,6 +229,7 @@ public class PBM_CaptureCamera : MonoBehaviour
 
                     // Step 3: Draw a rectangle on the ColorImage
                     int rectSize = 10; // Size of the 2D cube representation
+                    Debug.Log($"Draw on {pixelX} {pixelY}");
                     DrawRectangleOnTexture(ColorImage, pixelX, pixelY, rectSize, Color.red);
                     ColorImage.Apply();
                 }
