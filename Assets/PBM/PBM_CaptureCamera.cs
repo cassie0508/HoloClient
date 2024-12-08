@@ -97,6 +97,10 @@ public class PBM_CaptureCamera : MonoBehaviour
         ViewRenderTexture.Create();
 
         targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
+        if (targetObserver == null)
+        {
+            Debug.LogError("Image Target does not have ObserverBehaviour attached.");
+        }
     }
 
     private void Start()
@@ -183,15 +187,16 @@ public class PBM_CaptureCamera : MonoBehaviour
         _Camera.Render();
     }
 
-    // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         if (targetObserver != null && targetObserver.TargetStatus.Status == Status.TRACKED)
         {
+            Debug.Log("Target is tracked");
             hololensToImageTargetMatrix = GetHololensToImageTargetMatrix(targetObserver);
-            hololensToKinectMatrix = hololensToImageTargetMatrix * (kinectToImageTargetMatrix.inverse);
+
+            // 计算 Extrinsics
+            hololensToKinectMatrix = CalculateExtrinsics();
         }
-        // hlworld2Kinect = hlworld2imagetarget * kinectToImageTargetMatrix.inverse 
 
         if (colorImageData != null && hasReceivedFirstFrame)
         {
@@ -201,47 +206,38 @@ public class PBM_CaptureCamera : MonoBehaviour
                 ColorImage.Apply();
             }
 
-            //if (textureSource == null)
-            //{
-            //    textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
-            //}
-            //RenderTexture.active = source;
-            //textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-            //textureSource.Apply();
-
-            // Step 1: Get Cube's 3D position in Kinect space
             if (cube != null)
             {
                 Vector3 cubeWorldPosition = cube.transform.position;
-                //Debug.Log($"cubeWorldPosition is {cubeWorldPosition}");
+                Debug.Log($"Cube world position: {cubeWorldPosition}");
 
-                // Transform to Kinect space
+                // 转换到 Kinect 坐标系
                 Vector3 kinectPosition = hololensToKinectMatrix.MultiplyPoint(cubeWorldPosition);
 
-                // Project Kinect position to 2D screen space
-                Vector3 screenPosition = _Camera.WorldToScreenPoint(kinectPosition);
+                // 使用 Intrinsics 计算像素坐标
+                Matrix4x4 intrinsics = CalculateIntrinsics();
+                Vector2Int pixelPosition = GetProjectedPixelCoordinates(kinectPosition, intrinsics, ColorImage.width, ColorImage.height);
 
-                if (screenPosition.z > 0) // Only process if the point is in front of the camera
+                if (pixelPosition.x >= 0 && pixelPosition.x < ColorImage.width &&
+                    pixelPosition.y >= 0 && pixelPosition.y < ColorImage.height)
                 {
-                    // Map screen coordinates to ColorImage texture space
-                    int pixelX = Mathf.RoundToInt(screenPosition.x / _Camera.pixelWidth * ColorImage.width);
-                    int pixelY = Mathf.RoundToInt(screenPosition.y / _Camera.pixelHeight * ColorImage.height);
-
-                    // Step 3: Draw a rectangle on the ColorImage
-                    int rectSize = 10; // Size of the 2D cube representation
-                    Debug.Log($"Draw on {pixelX} {pixelY}");
-                    DrawRectangleOnTexture(ColorImage, pixelX, pixelY, rectSize, Color.red);
+                    int rectSize = 10;
+                    Debug.Log($"Drawing rectangle at ({pixelPosition.x}, {pixelPosition.y}) on ColorImage");
+                    DrawRectangleOnTexture(ColorImage, pixelPosition.x, pixelPosition.y, rectSize, Color.red);
                     ColorImage.Apply();
+                }
+                else
+                {
+                    Debug.LogWarning($"Pixel position out of range: {pixelPosition.x}, {pixelPosition.y}");
                 }
             }
 
-            // Render the merged result
             RealVirtualMergeMaterial.mainTexture = source;
             RealVirtualMergeMaterial.SetTexture("_RealContentTex", ColorImage);
-
             Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
         }
     }
+
 
     // Helper function to draw a rectangle on a Texture2D
     private void DrawRectangleOnTexture(Texture2D texture, int x, int y, int size, Color color)
@@ -262,6 +258,7 @@ public class PBM_CaptureCamera : MonoBehaviour
         // Retrieve the transformation matrix from AR Camera to Image Target
         Transform arTransform = arCamera.transform;
         Transform targetTransform = targetObserver.transform;
+        Transform cameraTrasform = _Camera.transform;
 
         // Calculate the relative matrix (Kinect's position and rotation relative to Image Target)
         return Matrix4x4.TRS(
@@ -270,6 +267,71 @@ public class PBM_CaptureCamera : MonoBehaviour
             Vector3.one
         );
     }
+
+    private Vector2Int GetProjectedPixelCoordinates(Vector3 worldPosition, Matrix4x4 intrinsics, int imageWidth, int imageHeight)
+    {
+        float uvX = (worldPosition.x / worldPosition.z) * intrinsics[0, 0] + intrinsics[0, 2];
+        float uvY = (worldPosition.y / worldPosition.z) * intrinsics[1, 1] + intrinsics[1, 2];
+
+        int pixelX = Mathf.RoundToInt(uvX * imageWidth);
+        int pixelY = Mathf.RoundToInt(uvY * imageHeight);
+
+        return new Vector2Int(pixelX, pixelY);
+    }
+
+
+    // Extrinsics 计算方法
+    private Matrix4x4 CalculateExtrinsics()
+    {
+        // 通过 client 发送的 kinectToMarkerMatrix 和 HoloLens 的 holoLensToMarkerMatrix 计算 Extrinsics
+        if (kinectToImageTargetMatrix == null || hololensToImageTargetMatrix == null)
+        {
+            Debug.LogError("Missing kinectToMarkerMatrix or hololensToImageTargetMatrix for Extrinsics calculation.");
+            return Matrix4x4.identity;
+        }
+
+        // Extrinsics = holoLensToKinectMatrix
+        Matrix4x4 extrinsics = hololensToImageTargetMatrix * kinectToImageTargetMatrix.inverse;
+        Debug.Log($"Calculated Extrinsics: {extrinsics}");
+        return extrinsics;
+    }
+
+    // Intrinsics 计算方法
+    private Matrix4x4 CalculateIntrinsics()
+    {
+        // 根据 _Camera 和 arCamera 的参数计算 Intrinsics
+        float fx = _Camera.focalLength / _Camera.sensorSize.x * Width;
+        float fy = _Camera.focalLength / _Camera.sensorSize.y * Height;
+
+        // 从 arCamera 中获取主点 (cx, cy)
+        float cx = Width / 2f; // 默认为图像中心
+        float cy = Height / 2f; // 默认为图像中心
+
+        if (arCamera != null)
+        {
+            Camera arCameraComponent = arCamera.GetComponent<Camera>();
+            if (arCameraComponent != null)
+            {
+                cx = arCameraComponent.pixelWidth / 2f;
+                cy = arCameraComponent.pixelHeight / 2f;
+            }
+        }
+
+        // 构造 Intrinsics 矩阵
+        Matrix4x4 intrinsics = Matrix4x4.zero;
+        intrinsics[0, 0] = fx;
+        intrinsics[1, 1] = fy;
+        intrinsics[0, 2] = cx;
+        intrinsics[1, 2] = cy;
+        intrinsics[2, 2] = 1f;
+
+        Debug.Log($"Calculated Intrinsics: fx={fx}, fy={fy}, cx={cx}, cy={cy}");
+        return intrinsics;
+    }
+
+
+
+
 
     private bool IsValidObserverPosition(Vector3 worldPos)
     {
