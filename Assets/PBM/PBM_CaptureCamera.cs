@@ -27,6 +27,8 @@ public class PBM_CaptureCamera : MonoBehaviour
     [SerializeField] private GameObject imageTarget; // Reference to the Image Target
     [SerializeField] private GameObject cube;
     private ObserverBehaviour targetObserver;
+    private GameObject kinectCube;
+    private GameObject kinectCamera;
 
     [Header("Resulting View (leave empty)")]
     public RenderTexture ViewRenderTexture;
@@ -187,15 +189,17 @@ public class PBM_CaptureCamera : MonoBehaviour
         _Camera.Render();
     }
 
+
+
+    // https://stackoverflow.com/questions/44264468/convert-rendertexture-to-texture2d
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         if (targetObserver != null && targetObserver.TargetStatus.Status == Status.TRACKED)
         {
-            Debug.Log("Target is tracked");
             hololensToImageTargetMatrix = GetHololensToImageTargetMatrix(targetObserver);
-
-            // 计算 Extrinsics
-            hololensToKinectMatrix = CalculateExtrinsics();
+            hololensToKinectMatrix = hololensToImageTargetMatrix * (kinectToImageTargetMatrix.inverse);
+            CreateCubeInKinectSpace();
+            CreateCameraInKinectSpace();
         }
 
         if (colorImageData != null && hasReceivedFirstFrame)
@@ -206,50 +210,19 @@ public class PBM_CaptureCamera : MonoBehaviour
                 ColorImage.Apply();
             }
 
-            if (cube != null)
+            if (textureSource == null)
             {
-                Vector3 cubeWorldPosition = cube.transform.position;
-                Debug.Log($"Cube world position: {cubeWorldPosition}");
-
-                // 转换到 Kinect 坐标系
-                Vector3 kinectPosition = hololensToKinectMatrix.MultiplyPoint(cubeWorldPosition);
-
-                // 使用 Intrinsics 计算像素坐标
-                Matrix4x4 intrinsics = CalculateIntrinsics();
-                Vector2Int pixelPosition = GetProjectedPixelCoordinates(kinectPosition, intrinsics, ColorImage.width, ColorImage.height);
-
-                if (pixelPosition.x >= 0 && pixelPosition.x < ColorImage.width &&
-                    pixelPosition.y >= 0 && pixelPosition.y < ColorImage.height)
-                {
-                    int rectSize = 10;
-                    Debug.Log($"Drawing rectangle at ({pixelPosition.x}, {pixelPosition.y}) on ColorImage");
-                    DrawRectangleOnTexture(ColorImage, pixelPosition.x, pixelPosition.y, rectSize, Color.red);
-                    ColorImage.Apply();
-                }
-                else
-                {
-                    Debug.LogWarning($"Pixel position out of range: {pixelPosition.x}, {pixelPosition.y}");
-                }
+                textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
             }
+            RenderTexture.active = source;
+            textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            textureSource.Apply();
+
 
             RealVirtualMergeMaterial.mainTexture = source;
             RealVirtualMergeMaterial.SetTexture("_RealContentTex", ColorImage);
+
             Graphics.Blit(source, ViewRenderTexture, RealVirtualMergeMaterial);
-        }
-    }
-
-
-    // Helper function to draw a rectangle on a Texture2D
-    private void DrawRectangleOnTexture(Texture2D texture, int x, int y, int size, Color color)
-    {
-        for (int i = -size; i <= size; i++)
-        {
-            for (int j = -size; j <= size; j++)
-            {
-                int drawX = Mathf.Clamp(x + i, 0, texture.width - 1);
-                int drawY = Mathf.Clamp(y + j, 0, texture.height - 1);
-                texture.SetPixel(drawX, drawY, color);
-            }
         }
     }
 
@@ -258,7 +231,9 @@ public class PBM_CaptureCamera : MonoBehaviour
         // Retrieve the transformation matrix from AR Camera to Image Target
         Transform arTransform = arCamera.transform;
         Transform targetTransform = targetObserver.transform;
-        Transform cameraTrasform = _Camera.transform;
+
+        Debug.Log($"camera position is {arTransform.position}, marker position is {targetTransform.position}");
+        Debug.Log($"camera rotation is {arTransform.rotation}");
 
         // Calculate the relative matrix (Kinect's position and rotation relative to Image Target)
         return Matrix4x4.TRS(
@@ -268,65 +243,79 @@ public class PBM_CaptureCamera : MonoBehaviour
         );
     }
 
-    private Vector2Int GetProjectedPixelCoordinates(Vector3 worldPosition, Matrix4x4 intrinsics, int imageWidth, int imageHeight)
+    private void CreateCubeInKinectSpace()
     {
-        float uvX = (worldPosition.x / worldPosition.z) * intrinsics[0, 0] + intrinsics[0, 2];
-        float uvY = (worldPosition.y / worldPosition.z) * intrinsics[1, 1] + intrinsics[1, 2];
-
-        int pixelX = Mathf.RoundToInt(uvX * imageWidth);
-        int pixelY = Mathf.RoundToInt(uvY * imageHeight);
-
-        return new Vector2Int(pixelX, pixelY);
-    }
-
-
-    // Extrinsics 计算方法
-    private Matrix4x4 CalculateExtrinsics()
-    {
-        // 通过 client 发送的 kinectToMarkerMatrix 和 HoloLens 的 holoLensToMarkerMatrix 计算 Extrinsics
-        if (kinectToImageTargetMatrix == null || hololensToImageTargetMatrix == null)
+        if (cube == null)
         {
-            Debug.LogError("Missing kinectToMarkerMatrix or hololensToImageTargetMatrix for Extrinsics calculation.");
-            return Matrix4x4.identity;
+            Debug.LogError("Cube is not assigned.");
+            return;
         }
 
-        // Extrinsics = holoLensToKinectMatrix
-        Matrix4x4 extrinsics = hololensToImageTargetMatrix * kinectToImageTargetMatrix.inverse;
-        Debug.Log($"Calculated Extrinsics: {extrinsics}");
-        return extrinsics;
-    }
+        // Get the cube's world position and rotation
+        Vector3 cubeWorldPosition = cube.transform.position;
+        Quaternion cubeWorldRotation = cube.transform.rotation;
 
-    // Intrinsics 计算方法
-    private Matrix4x4 CalculateIntrinsics()
-    {
-        // 根据 _Camera 和 arCamera 的参数计算 Intrinsics
-        float fx = _Camera.focalLength / _Camera.sensorSize.x * Width;
-        float fy = _Camera.focalLength / _Camera.sensorSize.y * Height;
+        // Convert world position to HoloLens local position
+        Vector4 cubePositionInHololens = new Vector4(cubeWorldPosition.x, cubeWorldPosition.y, cubeWorldPosition.z, 1);
 
-        // 从 arCamera 中获取主点 (cx, cy)
-        float cx = Width / 2f; // 默认为图像中心
-        float cy = Height / 2f; // 默认为图像中心
+        // Transform position to Kinect space using hololensToKinectMatrix
+        Vector4 cubePositionInKinect = hololensToKinectMatrix * cubePositionInHololens;
 
-        if (arCamera != null)
+        // Convert back to Vector3 for Unity
+        Vector3 newCubePositionInKinect = new Vector3(cubePositionInKinect.x, cubePositionInKinect.y, cubePositionInKinect.z);
+
+        // Adjust rotation: transform the cube's rotation to Kinect space
+        Quaternion newCubeRotationInKinect = hololensToKinectMatrix.rotation * cubeWorldRotation;
+
+        // Check if a Kinect cube already exists
+        if (kinectCube == null)
         {
-            Camera arCameraComponent = arCamera.GetComponent<Camera>();
-            if (arCameraComponent != null)
-            {
-                cx = arCameraComponent.pixelWidth / 2f;
-                cy = arCameraComponent.pixelHeight / 2f;
-            }
+            // Instantiate a new cube in Kinect space
+            kinectCube = Instantiate(cube);
+            kinectCube.name = "KinectCube"; // Optional: Rename for clarity
         }
 
-        // 构造 Intrinsics 矩阵
-        Matrix4x4 intrinsics = Matrix4x4.zero;
-        intrinsics[0, 0] = fx;
-        intrinsics[1, 1] = fy;
-        intrinsics[0, 2] = cx;
-        intrinsics[1, 2] = cy;
-        intrinsics[2, 2] = 1f;
+        // Set the position and rotation of the new cube
+        kinectCube.transform.position = newCubePositionInKinect;
+        kinectCube.transform.rotation = newCubeRotationInKinect;
 
-        Debug.Log($"Calculated Intrinsics: fx={fx}, fy={fy}, cx={cx}, cy={cy}");
-        return intrinsics;
+        Debug.Log($"Generated Kinect Cube: Position={newCubePositionInKinect}, Rotation={newCubeRotationInKinect}");
+    }
+
+    private void CreateCameraInKinectSpace()
+    {
+        if (arCamera == null)
+        {
+            Debug.LogError("Holo camera is not assigned.");
+            return;
+        }
+
+        Vector3 cameraWorldPosition = arCamera.transform.position;
+        Quaternion cameraWorldRotation = arCamera.transform.rotation;
+
+        // Convert world position to HoloLens local position
+        Vector4 cameraPositionInHololens = new Vector4(cameraWorldPosition.x, cameraWorldPosition.y, cameraWorldPosition.z, 1);
+
+        // Transform position to Kinect space using hololensToKinectMatrix
+        Vector4 cameraPositionInKinect = hololensToKinectMatrix * cameraPositionInHololens;
+
+        // Convert back to Vector3 for Unity
+        Vector3 newCameraPositionInKinect = new Vector3(cameraPositionInKinect.x, cameraPositionInKinect.y, cameraPositionInKinect.z);
+
+        // Adjust rotation: transform the cube's rotation to Kinect space
+        Quaternion newCameraRotationInKinect = hololensToKinectMatrix.rotation * cameraWorldRotation;
+
+        //if (kinectCamera == null)
+        //{
+        //    kinectCamera = Instantiate(arCamera);
+        //    kinectCamera.name = "kinectCamera";
+        //}
+
+        //kinectCamera.transform.position = newCameraPositionInKinect;
+        //kinectCamera.transform.rotation = newCameraRotationInKinect;
+
+        Debug.Log($"Generated Kinect Camera: Position={newCameraPositionInKinect}, Rotation={newCameraRotationInKinect}");
+        Debug.Log($"_Camera position is {_Camera.transform.position}");
     }
 
 
