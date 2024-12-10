@@ -198,8 +198,6 @@ public class PBM_CaptureCamera : MonoBehaviour
         {
             hololensToImageTargetMatrix = GetHololensToImageTargetMatrix(targetObserver);
             hololensToKinectMatrix = hololensToImageTargetMatrix * (kinectToImageTargetMatrix.inverse);
-            CreateCubeInKinectSpace();
-            CreateCameraInKinectSpace();
         }
 
         if (colorImageData != null && hasReceivedFirstFrame)
@@ -228,97 +226,27 @@ public class PBM_CaptureCamera : MonoBehaviour
 
     private Matrix4x4 GetHololensToImageTargetMatrix(ObserverBehaviour targetObserver)
     {
-        // Retrieve the transformation matrix from AR Camera to Image Target
+        // Retrieve the transformation matrix from AR Camera
         Transform arTransform = arCamera.transform;
-        Transform targetTransform = targetObserver.transform;
-
-        Debug.Log($"camera position is {arTransform.position}, marker position is {targetTransform.position}");
-        Debug.Log($"camera rotation is {arTransform.rotation}");
-
-        // Calculate the relative matrix (Kinect's position and rotation relative to Image Target)
-        return Matrix4x4.TRS(
-            targetTransform.position - arTransform.position,
-            Quaternion.Inverse(arTransform.rotation) * targetTransform.rotation,
+        Matrix4x4 arCameraMatrix = Matrix4x4.TRS(
+            arTransform.position,
+            arTransform.rotation,
             Vector3.one
         );
+
+        // Retrieve the transformation matrix from Image Target
+        Transform targetTransform = targetObserver.transform;
+        Matrix4x4 targetMatrix = Matrix4x4.TRS(
+            targetTransform.position,
+            targetTransform.rotation,
+            Vector3.one
+        );
+
+        // Calculate the relative matrix (Hololens to Image Target)
+        Matrix4x4 hololensToImageTargetMatrix = targetMatrix * arCameraMatrix.inverse;
+
+        return hololensToImageTargetMatrix;
     }
-
-    private void CreateCubeInKinectSpace()
-    {
-        if (cube == null)
-        {
-            Debug.LogError("Cube is not assigned.");
-            return;
-        }
-
-        // Get the cube's world position and rotation
-        Vector3 cubeWorldPosition = cube.transform.position;
-        Quaternion cubeWorldRotation = cube.transform.rotation;
-
-        // Convert world position to HoloLens local position
-        Vector4 cubePositionInHololens = new Vector4(cubeWorldPosition.x, cubeWorldPosition.y, cubeWorldPosition.z, 1);
-
-        // Transform position to Kinect space using hololensToKinectMatrix
-        Vector4 cubePositionInKinect = hololensToKinectMatrix * cubePositionInHololens;
-
-        // Convert back to Vector3 for Unity
-        Vector3 newCubePositionInKinect = new Vector3(cubePositionInKinect.x, cubePositionInKinect.y, cubePositionInKinect.z);
-
-        // Adjust rotation: transform the cube's rotation to Kinect space
-        Quaternion newCubeRotationInKinect = hololensToKinectMatrix.rotation * cubeWorldRotation;
-
-        // Check if a Kinect cube already exists
-        if (kinectCube == null)
-        {
-            // Instantiate a new cube in Kinect space
-            kinectCube = Instantiate(cube);
-            kinectCube.name = "KinectCube"; // Optional: Rename for clarity
-        }
-
-        // Set the position and rotation of the new cube
-        kinectCube.transform.position = newCubePositionInKinect;
-        kinectCube.transform.rotation = newCubeRotationInKinect;
-
-        Debug.Log($"Generated Kinect Cube: Position={newCubePositionInKinect}, Rotation={newCubeRotationInKinect}");
-    }
-
-    private void CreateCameraInKinectSpace()
-    {
-        if (arCamera == null)
-        {
-            Debug.LogError("Holo camera is not assigned.");
-            return;
-        }
-
-        Vector3 cameraWorldPosition = arCamera.transform.position;
-        Quaternion cameraWorldRotation = arCamera.transform.rotation;
-
-        // Convert world position to HoloLens local position
-        Vector4 cameraPositionInHololens = new Vector4(cameraWorldPosition.x, cameraWorldPosition.y, cameraWorldPosition.z, 1);
-
-        // Transform position to Kinect space using hololensToKinectMatrix
-        Vector4 cameraPositionInKinect = hololensToKinectMatrix * cameraPositionInHololens;
-
-        // Convert back to Vector3 for Unity
-        Vector3 newCameraPositionInKinect = new Vector3(cameraPositionInKinect.x, cameraPositionInKinect.y, cameraPositionInKinect.z);
-
-        // Adjust rotation: transform the cube's rotation to Kinect space
-        Quaternion newCameraRotationInKinect = hololensToKinectMatrix.rotation * cameraWorldRotation;
-
-        //if (kinectCamera == null)
-        //{
-        //    kinectCamera = Instantiate(arCamera);
-        //    kinectCamera.name = "kinectCamera";
-        //}
-
-        //kinectCamera.transform.position = newCameraPositionInKinect;
-        //kinectCamera.transform.rotation = newCameraRotationInKinect;
-
-        Debug.Log($"Generated Kinect Camera: Position={newCameraPositionInKinect}, Rotation={newCameraRotationInKinect}");
-        Debug.Log($"_Camera position is {_Camera.transform.position}");
-    }
-
-
 
 
 
