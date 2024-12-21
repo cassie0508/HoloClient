@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: ARBackground
-  m_Shader: {fileID: 4800000, guid: f044061923ae06d438cdb9448a11ac0b, type: 3}
+  m_Name: OverlayMat
+  m_Shader: {fileID: 10770, guid: 0000000000000000f000000000000000, type: 0}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -38,5 +38,5 @@ Material:
     - _UseUIAlphaClip: 0
     - _Width: 0.05
     m_Colors:
-    - _Color: {r: 1, g: 0, b: 0, a: 0.44705883}
+    - _Color: {r: 1, g: 0, b: 0, a: 0.38431373}
   m_BuildTextureStacks: []
