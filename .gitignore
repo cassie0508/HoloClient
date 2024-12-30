@@ -13,7 +13,7 @@ BuildReplica/
 BuildMirror/
 BuildBase/
 
-Packages/com.ptc.vuforia.engine-10.27.3.tgz
+Packages/
 Assets/Editor/
 
 # Visual Studio cache directory
@@ -52,4 +52,8 @@ Assets/Kinect4Azure/Plugins/*.dll
 Assets/Kinect4Azure/Plugins/*.meta
 
 # Ignore specific files
-.collabignore
+*.collabignore
+*.glb
+*.glb.meta
+*.fbx
+*.fbx.meta

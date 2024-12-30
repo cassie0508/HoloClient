@@ -702,7 +702,8 @@ PlayerSettings:
       InternetClient: True
       WebCam: True
       Microphone: True
-  metroTargetDeviceFamilies: {}
+  metroTargetDeviceFamilies:
+    Xbox: False
   metroFTAName: 
   metroFTAFileTypes: []
   metroProtocolName: 
