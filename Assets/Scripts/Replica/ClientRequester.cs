@@ -10,11 +10,16 @@ using System.Collections.Generic;   // For List<>
 using PubSub;
 using NetMQ.Sockets;
 using System.Collections;
+using UnityEngine.Timeline;
 
 namespace Kinect4Azure
 {
     public class ClientRequester : MonoBehaviour
     {
+        [Header("Duplicated Reality")]
+        public Transform RegionOfInterest;
+        public Transform DuplicatedReality;
+
         [Header("Networking")]
         [SerializeField] private string host;
         [SerializeField] private string port = "12345";
@@ -24,6 +29,7 @@ namespace Kinect4Azure
         public TextMeshProUGUI DelayTMP;
         public TextMeshProUGUI RenderTMP;
         public RawImage DebugImage;
+        public GameObject Model;
 
         [Serializable]
         public struct PointcloudShader
@@ -85,12 +91,82 @@ namespace Kinect4Azure
         private ComputeBuffer _ub;
         private ComputeBuffer _vb;
 
-        public virtual void OnSetPointcloudProperties(Material pointcloudMat) { }
+        Matrix4x4 modelToCamera = new Matrix4x4
+        {
+            m00 = -2.12492f,
+            m01 = 99.65711f,
+            m02 = 7.99674f,
+            m03 = 0.16834f,
+            m10 = 98.30341f,
+            m11 = 0.62507f,
+            m12 = 18.33170f,
+            m13 = -0.10043f,
+            m20 = 18.21886f,
+            m21 = 8.25060f,
+            m22 = -97.97961f,
+            m23 = 1.03944f,
+            m30 = 0.0f,
+            m31 = 0.0f,
+            m32 = 0.0f,
+            m33 = 1.0f
+        };
 
         private void Start()
         {
+            //InitializeGuidance();
+
             InitializeSocket();
+
             StartCoroutine(RequestDataLoop());
+        }
+
+        private void InitializeGuidance()
+        {
+            // RegionOfInterest.worldToLocalMatrix == cameraToRoiMatrix, because camera is in origin (0, 0, 0)
+
+
+            /* When Model is child of RegionOfInterest */
+            // Calculate markerToRoiMatrix
+            /*
+            Matrix4x4 markerToRoiMatrix = RegionOfInterest.worldToLocalMatrix * modelToCamera;
+
+            // Get roi's world matrix
+            Matrix4x4 roiToWorldMatrix = RegionOfInterest.localToWorldMatrix;
+
+            // Calculate marker's local matrix
+            Matrix4x4 markerLocalMatrix = roiToWorldMatrix.inverse * markerToRoiMatrix;
+
+            // Extract local position, rotation, and scale from the matrix
+            Model.transform.localPosition = markerLocalMatrix.GetColumn(3);
+            Model.transform.localRotation = Quaternion.LookRotation(
+                markerLocalMatrix.GetColumn(2), // Forward
+                markerLocalMatrix.GetColumn(1)  // Up
+            );
+            Model.transform.localScale = new Vector3(
+                markerLocalMatrix.GetColumn(0).magnitude,
+                markerLocalMatrix.GetColumn(1).magnitude,
+                markerLocalMatrix.GetColumn(2).magnitude
+            );
+            */
+
+            Matrix4x4 modelToWorldMatrix = modelToCamera;
+
+            Vector3 position = modelToWorldMatrix.GetColumn(3);
+
+            Quaternion rotation = Quaternion.LookRotation(
+                modelToWorldMatrix.GetColumn(2), // Forward
+                modelToWorldMatrix.GetColumn(1)  // Up
+            );
+
+            Vector3 scale = new Vector3(
+                modelToWorldMatrix.GetColumn(0).magnitude,
+                modelToWorldMatrix.GetColumn(1).magnitude,
+                modelToWorldMatrix.GetColumn(2).magnitude
+            );
+
+            Model.transform.position = position;
+            Model.transform.rotation = rotation;
+            Model.transform.localScale = scale;
         }
 
         private void InitializeSocket()
@@ -299,7 +375,12 @@ namespace Kinect4Azure
 
                 // Draw resulting PointCloud
                 int pixel_count = DepthImage.width * DepthImage.height;
-                OnSetPointcloudProperties(_Buffer2SurfaceMaterial);
+
+                // Set Pointcloud Properties
+                _Buffer2SurfaceMaterial.SetMatrix("_Roi2Dupl", DuplicatedReality.localToWorldMatrix * RegionOfInterest.worldToLocalMatrix);
+                _Buffer2SurfaceMaterial.SetMatrix("_ROI_Inversed", RegionOfInterest.worldToLocalMatrix);
+                _Buffer2SurfaceMaterial.SetMatrix("_Dupl_Inversed", DuplicatedReality.worldToLocalMatrix);
+
                 Graphics.DrawProcedural(_Buffer2SurfaceMaterial, new Bounds(transform.position, Vector3.one * 10), MeshTopology.Triangles, pixel_count * 6);
 
                 long timeEnd = DateTime.UtcNow.Ticks;
