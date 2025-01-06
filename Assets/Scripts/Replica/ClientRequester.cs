@@ -11,6 +11,7 @@ using PubSub;
 using NetMQ.Sockets;
 using System.Collections;
 using UnityEngine.Timeline;
+using Vuforia;
 
 namespace Kinect4Azure
 {
@@ -69,6 +70,10 @@ namespace Kinect4Azure
         [SerializeField] private Texture2D DepthImage;
         [SerializeField] private Texture2D ColorInDepthImage;
 
+        [Header("AR Camera Settings")]
+        [SerializeField] private GameObject arCamera;
+        [SerializeField] private GameObject imageTarget;
+
         private byte[] cameraData;
         private byte[] xyLookupDataPart1;
         private byte[] xyLookupDataPart2;
@@ -113,11 +118,54 @@ namespace Kinect4Azure
 
         private void Start()
         {
+            StartCoroutine(DetectAndTrackImageTarget());
+
+
             //InitializeGuidance();
 
-            InitializeSocket();
+            //InitializeSocket();
 
-            StartCoroutine(RequestDataLoop());
+            //StartCoroutine(RequestDataLoop());
+        }
+
+        private IEnumerator DetectAndTrackImageTarget()
+        {
+            // Wait until the Image Target is detected
+            ObserverBehaviour targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
+            if (targetObserver == null)
+            {
+                Debug.LogError("Image Target does not have ObserverBehaviour attached.");
+                yield break;
+            }
+
+            Debug.Log("Waiting for Image Target to be tracked...");
+
+            // Wait for Image Target to start tracking
+            while (targetObserver.TargetStatus.Status != Status.TRACKED)
+            {
+                yield return null;
+            }
+
+            Debug.Log("Image Target detected. Starting to track...");
+
+            // Continuously update the modelToCameraMatrix while the target is tracked
+            while (targetObserver.TargetStatus.Status == Status.TRACKED)
+            {
+                Matrix4x4 marker2camera = imageTarget.transform.localToWorldMatrix * arCamera.transform.worldToLocalMatrix;
+
+                Debug.Log("marker2camera");
+                Debug.Log(marker2camera);
+
+                Debug.Log("camera local to world");
+                Debug.Log(arCamera.transform.localToWorldMatrix);
+
+                Debug.Log("marker local to world");
+                Debug.Log(imageTarget.transform.localToWorldMatrix);
+
+                yield return null; // Wait for the next frame
+            }
+
+            Debug.Log("Image Target is no longer tracked. Stopping updates.");
         }
 
         private void InitializeGuidance()
@@ -151,21 +199,14 @@ namespace Kinect4Azure
 
             Matrix4x4 modelToWorldMatrix = modelToCamera;
 
-            Vector3 position = modelToWorldMatrix.GetColumn(3);
-
-            Quaternion rotation = Quaternion.LookRotation(
-                modelToWorldMatrix.GetColumn(2), // Forward
-                modelToWorldMatrix.GetColumn(1)  // Up
-            );
-
             Vector3 scale = new Vector3(
                 modelToWorldMatrix.GetColumn(0).magnitude,
                 modelToWorldMatrix.GetColumn(1).magnitude,
                 modelToWorldMatrix.GetColumn(2).magnitude
             );
 
-            Model.transform.position = position;
-            Model.transform.rotation = rotation;
+            Model.transform.position = modelToWorldMatrix.GetPosition();
+            Model.transform.rotation = modelToWorldMatrix.rotation;
             Model.transform.localScale = scale;
         }
 

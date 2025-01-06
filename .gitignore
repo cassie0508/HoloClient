@@ -12,6 +12,7 @@ Build2/
 BuildReplica/
 BuildMirror/
 BuildBase/
+BuildTest/
 
 Packages/
 Assets/Editor/

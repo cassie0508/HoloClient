@@ -5,7 +5,7 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/Mirror_SampleScene.unity
     guid: 8086e48a5dea23c4a99443d61f203387
   - enabled: 0
@@ -14,6 +14,9 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Scenes/Baseline.unity
     guid: f50c9a4da66900c448212592c8a28187
+  - enabled: 1
+    path: Assets/Scenes/Test.unity
+    guid: 07761b653288ed0438df2cb1e37c1b0d
   m_configObjects:
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 13e006632d85152479a0fd5af062ff4c, type: 2}
     com.unity.xr.openxr.settings4: {fileID: 11400000, guid: a5618ec3041f168488509e433f5d1920, type: 2}
