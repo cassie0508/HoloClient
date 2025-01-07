@@ -73,6 +73,7 @@ namespace Kinect4Azure
         [Header("AR Camera Settings")]
         [SerializeField] private GameObject arCamera;
         [SerializeField] private GameObject imageTarget;
+        [SerializeField] private GameObject model;
 
         private byte[] cameraData;
         private byte[] xyLookupDataPart1;
@@ -96,120 +97,66 @@ namespace Kinect4Azure
         private ComputeBuffer _ub;
         private ComputeBuffer _vb;
 
-        Matrix4x4 modelToCamera = new Matrix4x4
-        {
-            m00 = -2.12492f,
-            m01 = 99.65711f,
-            m02 = 7.99674f,
-            m03 = 0.16834f,
-            m10 = 98.30341f,
-            m11 = 0.62507f,
-            m12 = 18.33170f,
-            m13 = -0.10043f,
-            m20 = 18.21886f,
-            m21 = 8.25060f,
-            m22 = -97.97961f,
-            m23 = 1.03944f,
-            m30 = 0.0f,
-            m31 = 0.0f,
-            m32 = 0.0f,
-            m33 = 1.0f
-        };
+        // Calibration
+        private Matrix4x4 kinect2marker;
+        private Matrix4x4 modelInKinect;
+        private ObserverBehaviour targetObserver;
+        private bool isTracking = false;
 
         private void Start()
         {
-            StartCoroutine(DetectAndTrackImageTarget());
+            kinect2marker = new Matrix4x4
+            {
+                m00 = -0.02802f,
+                m01 = 0.99953f,
+                m02 = 0.01214f,
+                m03 = 0.07007f,
+                m10 = -0.14232f,
+                m11 = 0.00803f,
+                m12 = -0.98979f,
+                m13 = 1.04418f,
+                m20 = -0.98942f,
+                m21 = -0.02946f,
+                m22 = 0.14203f,
+                m23 = -0.20756f,
+                m30 = 0.00000f,
+                m31 = 0.00000f,
+                m32 = 0.00000f,
+                m33 = 1.00000f
+            };
 
+            modelInKinect = new Matrix4x4
+            {
+                m00 = -0.00692f,
+                m01 = -0.00014f,
+                m02 = -0.16820f,
+                m03 = -0.05479f,
+                m10 = 0.24688f,
+                m11 = 0.00001f,
+                m12 = -0.00501f,
+                m13 = -0.08454f,
+                m20 = 0.00300f,
+                m21 = -0.00099f,
+                m22 = 0.02414f,
+                m23 = 1.06214f,
+                m30 = 0.00000f,
+                m31 = 0.00000f,
+                m32 = 0.00000f,
+                m33 = 1.00000f
+            };
 
-            //InitializeGuidance();
-
-            //InitializeSocket();
-
-            //StartCoroutine(RequestDataLoop());
-        }
-
-        private IEnumerator DetectAndTrackImageTarget()
-        {
-            // Wait until the Image Target is detected
-            ObserverBehaviour targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
+            targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
             if (targetObserver == null)
             {
                 Debug.LogError("Image Target does not have ObserverBehaviour attached.");
-                yield break;
             }
 
-            Debug.Log("Waiting for Image Target to be tracked...");
+            InitializeSocket();
 
-            // Wait for Image Target to start tracking
-            while (targetObserver.TargetStatus.Status != Status.TRACKED)
-            {
-                yield return null;
-            }
-
-            Debug.Log("Image Target detected. Starting to track...");
-
-            // Continuously update the modelToCameraMatrix while the target is tracked
-            while (targetObserver.TargetStatus.Status == Status.TRACKED)
-            {
-                Matrix4x4 marker2camera = imageTarget.transform.localToWorldMatrix * arCamera.transform.worldToLocalMatrix;
-
-                Debug.Log("marker2camera");
-                Debug.Log(marker2camera);
-
-                Debug.Log("camera local to world");
-                Debug.Log(arCamera.transform.localToWorldMatrix);
-
-                Debug.Log("marker local to world");
-                Debug.Log(imageTarget.transform.localToWorldMatrix);
-
-                yield return null; // Wait for the next frame
-            }
-
-            Debug.Log("Image Target is no longer tracked. Stopping updates.");
+            StartCoroutine(RequestDataLoop());
         }
 
-        private void InitializeGuidance()
-        {
-            // RegionOfInterest.worldToLocalMatrix == cameraToRoiMatrix, because camera is in origin (0, 0, 0)
-
-
-            /* When Model is child of RegionOfInterest */
-            // Calculate markerToRoiMatrix
-            /*
-            Matrix4x4 markerToRoiMatrix = RegionOfInterest.worldToLocalMatrix * modelToCamera;
-
-            // Get roi's world matrix
-            Matrix4x4 roiToWorldMatrix = RegionOfInterest.localToWorldMatrix;
-
-            // Calculate marker's local matrix
-            Matrix4x4 markerLocalMatrix = roiToWorldMatrix.inverse * markerToRoiMatrix;
-
-            // Extract local position, rotation, and scale from the matrix
-            Model.transform.localPosition = markerLocalMatrix.GetColumn(3);
-            Model.transform.localRotation = Quaternion.LookRotation(
-                markerLocalMatrix.GetColumn(2), // Forward
-                markerLocalMatrix.GetColumn(1)  // Up
-            );
-            Model.transform.localScale = new Vector3(
-                markerLocalMatrix.GetColumn(0).magnitude,
-                markerLocalMatrix.GetColumn(1).magnitude,
-                markerLocalMatrix.GetColumn(2).magnitude
-            );
-            */
-
-            Matrix4x4 modelToWorldMatrix = modelToCamera;
-
-            Vector3 scale = new Vector3(
-                modelToWorldMatrix.GetColumn(0).magnitude,
-                modelToWorldMatrix.GetColumn(1).magnitude,
-                modelToWorldMatrix.GetColumn(2).magnitude
-            );
-
-            Model.transform.position = modelToWorldMatrix.GetPosition();
-            Model.transform.rotation = modelToWorldMatrix.rotation;
-            Model.transform.localScale = scale;
-        }
-
+        
         private void InitializeSocket()
         {
             try
@@ -428,6 +375,49 @@ namespace Kinect4Azure
                 double timeDiff = (timeEnd - timeBegin) / TimeSpan.TicksPerMillisecond;
                 RenderTMP.SetText($"Time in rendering this frame: {timeDiff}");
             }
+
+            if (targetObserver == null) return;
+
+            if (targetObserver.TargetStatus.Status == Status.TRACKED)
+            {
+                if (!isTracking)
+                {
+                    isTracking = true;
+                    Debug.Log("Image Target detected. Starting to track...");
+                    Renderer modelRenderer = model.GetComponent<Renderer>();
+                    if (modelRenderer != null) modelRenderer.enabled = true;
+                }
+
+                UpdateModelTransform();
+            }
+            else
+            {
+                if (isTracking)
+                {
+                    isTracking = false;
+                    Debug.Log("Image Target is no longer tracked. Stopping updates.");
+                    Renderer modelRenderer = model.GetComponent<Renderer>();
+                    if (modelRenderer != null) modelRenderer.enabled = false;
+                }
+            }
+        }
+
+        private void UpdateModelTransform()
+        {
+            Matrix4x4 marker2holo = arCamera.transform.worldToLocalMatrix * imageTarget.transform.localToWorldMatrix;
+            Matrix4x4 kinect2holo = marker2holo * kinect2marker;
+
+            Matrix4x4 modelInHolo = kinect2holo * modelInKinect;
+
+            Vector3 scale = new Vector3(
+                modelInHolo.GetColumn(0).magnitude,
+                modelInHolo.GetColumn(1).magnitude,
+                modelInHolo.GetColumn(2).magnitude
+            );
+
+            model.transform.position = modelInHolo.GetPosition();
+            model.transform.rotation = modelInHolo.rotation;
+            model.transform.localScale = scale;
         }
 
         private void SetupTextures(ref Texture2D Depth, ref Texture2D ColorInDepth)

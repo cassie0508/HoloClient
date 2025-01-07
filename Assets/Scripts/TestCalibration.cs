@@ -1,3 +1,5 @@
+using PubSub;
+using System;
 using UnityEngine;
 using Vuforia;
 
@@ -8,52 +10,28 @@ public class TestCalibration : MonoBehaviour
     [SerializeField] private GameObject imageTarget;
     [SerializeField] private GameObject model;
 
-    private Matrix4x4 kinect2marker;
-    private Matrix4x4 modelInKinect;
+    [SerializeField] private string host;
+    [SerializeField] private string port = "55555";
+    private Subscriber subscriber;
+
+    private Matrix4x4 marker2kinect;
     private ObserverBehaviour targetObserver;
-    private bool isTracking = false;
+    public Transform DebugObject;
+
+    private bool hasCalibrationData = false;
 
     void Start()
     {
-        kinect2marker = new Matrix4x4
+        try
         {
-            m00 = -0.02802f,
-            m01 = 0.99953f,
-            m02 = 0.01214f,
-            m03 = 0.07007f,
-            m10 = -0.14232f,
-            m11 = 0.00803f,
-            m12 = -0.98979f,
-            m13 = 1.04418f,
-            m20 = -0.98942f,
-            m21 = -0.02946f,
-            m22 = 0.14203f,
-            m23 = -0.20756f,
-            m30 = 0.00000f,
-            m31 = 0.00000f,
-            m32 = 0.00000f,
-            m33 = 1.00000f
-        };
-
-        modelInKinect = new Matrix4x4
+            subscriber = new Subscriber(host, port);
+            subscriber.AddTopicCallback("Calibration", data => OnCalibrationReceived(data));
+            Debug.Log("Subscriber setup complete with host: " + host + " and port: " + port);
+        }
+        catch (Exception e)
         {
-            m00 = -0.00692f,
-            m01 = -0.00014f,
-            m02 = -0.16820f,
-            m03 = -0.05479f,
-            m10 = 0.24688f,
-            m11 = 0.00001f,
-            m12 = -0.00501f,
-            m13 = -0.08454f,
-            m20 = 0.00300f,
-            m21 = -0.00099f,
-            m22 = 0.02414f,
-            m23 = 1.06214f,
-            m30 = 0.00000f,
-            m31 = 0.00000f,
-            m32 = 0.00000f,
-            m33 = 1.00000f
-        };
+            Debug.LogError("Failed to start subscriber: " + e.Message);
+        }
 
         targetObserver = imageTarget.GetComponent<ObserverBehaviour>();
         if (targetObserver == null)
@@ -62,52 +40,37 @@ public class TestCalibration : MonoBehaviour
         }
     }
 
+    private void OnCalibrationReceived(byte[] data)
+    {
+        marker2kinect = ByteArrayToMatrix4x4(data);
+        hasCalibrationData = true;
+    }
+
+    private Matrix4x4 ByteArrayToMatrix4x4(byte[] byteArray)
+    {
+        float[] matrixFloats = new float[16];
+        Buffer.BlockCopy(byteArray, 0, matrixFloats, 0, byteArray.Length);
+
+        Matrix4x4 matrix = new Matrix4x4();
+        for (int i = 0; i < 16; i++)
+        {
+            matrix[i] = matrixFloats[i];
+        }
+
+        return matrix;
+    }
+
     void Update()
     {
-        if (targetObserver == null) return;
+        if (targetObserver == null || hasCalibrationData == false) return;
 
         if (targetObserver.TargetStatus.Status == Status.TRACKED)
         {
-            if (!isTracking)
-            {
-                isTracking = true;
-                Debug.Log("Image Target detected. Starting to track...");
-                Renderer modelRenderer = model.GetComponent<Renderer>();
-                if (modelRenderer != null) modelRenderer.enabled = true;
-            }
+            Matrix4x4 O2image = Matrix4x4.TRS(imageTarget.transform.position, imageTarget.transform.rotation, Vector3.one);
+            Matrix4x4 O2Kinect = O2image * marker2kinect;
 
-            UpdateModelTransform();
+            if (DebugObject)
+                DebugObject.SetPositionAndRotation(O2Kinect.GetPosition(), O2Kinect.rotation);
         }
-        else
-        {
-            if (isTracking)
-            {
-                isTracking = false;
-                Debug.Log("Image Target is no longer tracked. Stopping updates.");
-                Renderer modelRenderer = model.GetComponent<Renderer>();
-                if (modelRenderer != null) modelRenderer.enabled = false;
-            }
-        }
-    }
-
-    private void UpdateModelTransform()
-    {
-        Matrix4x4 marker2holo = arCamera.transform.worldToLocalMatrix * imageTarget.transform.localToWorldMatrix;
-        Matrix4x4 kinect2holo = marker2holo * kinect2marker;
-
-        Matrix4x4 modelInHolo = kinect2holo * modelInKinect;
-
-        Vector3 scale = new Vector3(
-            modelInHolo.GetColumn(0).magnitude,
-            modelInHolo.GetColumn(1).magnitude,
-            modelInHolo.GetColumn(2).magnitude
-        );
-
-        model.transform.position = modelInHolo.GetPosition();
-        model.transform.rotation = modelInHolo.rotation;
-        model.transform.localScale = scale;
-
-        Debug.Log($"model position is {model.transform.position}");
-        Debug.Log($"marker position is {imageTarget.transform.position}");
     }
 }

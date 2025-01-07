@@ -38,5 +38,5 @@ Material:
     - _UseUIAlphaClip: 0
     - _Width: 0.05
     m_Colors:
-    - _Color: {r: 0, g: 0.19440794, b: 1, a: 0.44705883}
+    - _Color: {r: 0, g: 0.19440794, b: 1, a: 0}
   m_BuildTextureStacks: []
