@@ -14,9 +14,10 @@ public class TestCalibration : MonoBehaviour
     [SerializeField] private string port = "55555";
     private Subscriber subscriber;
 
-    private Matrix4x4 marker2kinect;
+    private Matrix4x4 Marker2Kinect;
     private ObserverBehaviour targetObserver;
-    public Transform DebugObject;
+    public Transform DebugObject1;
+    public Transform DebugObject2;
 
     private bool hasCalibrationData = false;
 
@@ -42,7 +43,7 @@ public class TestCalibration : MonoBehaviour
 
     private void OnCalibrationReceived(byte[] data)
     {
-        marker2kinect = ByteArrayToMatrix4x4(data);
+        Marker2Kinect = ByteArrayToMatrix4x4(data);
         hasCalibrationData = true;
     }
 
@@ -66,11 +67,20 @@ public class TestCalibration : MonoBehaviour
 
         if (targetObserver.TargetStatus.Status == Status.TRACKED)
         {
-            Matrix4x4 O2image = Matrix4x4.TRS(imageTarget.transform.position, imageTarget.transform.rotation, Vector3.one);
-            Matrix4x4 O2Kinect = O2image * marker2kinect;
+            Matrix4x4 O2Marker = Matrix4x4.TRS(imageTarget.transform.position, imageTarget.transform.rotation, Vector3.one);
+            Matrix4x4 O2Kinect = O2Marker * Marker2Kinect;
 
-            if (DebugObject)
-                DebugObject.SetPositionAndRotation(O2Kinect.GetPosition(), O2Kinect.rotation);
+            Vector3 position = O2Kinect.GetPosition();
+            Vector3 newPosition = new Vector3 { x = position.x, y = position.y, z = position.z / 2 };
+
+            if (DebugObject1)
+                DebugObject1.SetPositionAndRotation(position, O2Kinect.rotation);
+
+            if(DebugObject2)
+            {
+                DebugObject2.localPosition = Marker2Kinect.GetPosition();
+                DebugObject2.localRotation = Marker2Kinect.rotation;
+            }
         }
     }
 }

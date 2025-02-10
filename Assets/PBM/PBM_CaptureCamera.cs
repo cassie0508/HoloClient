@@ -118,11 +118,9 @@ public class PBM_CaptureCamera : MonoBehaviour
 
         UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
         {
-            // Only initilize ColorImage once, no matter the following size data
-            // ColorImage != null means size data has received
             if (ColorImage == null)
             {
-                ColorImage = new Texture2D(width, height, TextureFormat.RGB24, false);
+                ColorImage = new Texture2D(width, height, TextureFormat.BGRA32, false);
                 Debug.Log($"PBM_CaptureCamera::OnColorSizeReceived(): Initialized new ColorImage with width: {width}, height: {height}");
             }
         });

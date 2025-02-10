@@ -12,11 +12,10 @@ using NetMQ.Sockets;
 using System.Collections;
 using UnityEngine.Timeline;
 using Vuforia;
-using UnityEngine.SpatialTracking;
 
 namespace Kinect4Azure
 {
-    public class ClientRequester : MonoBehaviour
+    public class OldRequester : MonoBehaviour
     {
         [Header("Duplicated Reality")]
         public Transform RegionOfInterest;
@@ -65,21 +64,6 @@ namespace Kinect4Azure
         [SerializeField] private Texture2D DepthImage;
         [SerializeField] private Texture2D ColorInDepthImage;
 
-        [Header("Calibration")]
-        [SerializeField] private GameObject spine;
-        [SerializeField] private GameObject kinect;
-        [SerializeField] private GameObject spinePlaceholder;
-        [SerializeField] private GameObject kinectPlaceholder;
-        [SerializeField] private GameObject marker1;
-        [SerializeField] private GameObject marker2;
-        private Matrix4x4 OToMarker1;
-        private Matrix4x4 OToMarker2;
-        private Matrix4x4 OToKinect;
-        bool hasMarker1Set = false;
-        bool hasMarker2Set = false;
-
-        private TrackedPoseDriver trackedPoseDriver;
-
 
 
         private byte[] cameraData;
@@ -109,61 +93,8 @@ namespace Kinect4Azure
         {
             InitializeSocket();
 
-            trackedPoseDriver = GetComponent<TrackedPoseDriver>();
-            if (trackedPoseDriver == null) Debug.LogError("trackedPoseDriver == null");
-
-            StartCoroutine(InitializeAndRequestData());
+            StartCoroutine(RequestDataLoop());
         }
-
-        private IEnumerator InitializeAndRequestData()
-        {
-            yield return StartCoroutine(InitializeMatrix());
-
-            yield return StartCoroutine(RequestDataLoop());
-        }
-
-        private IEnumerator InitializeMatrix()
-        {
-            ObserverBehaviour marker1Observer = marker1.GetComponent<ObserverBehaviour>();
-            ObserverBehaviour marker2Observer = marker2.GetComponent<ObserverBehaviour>();
-
-            Debug.Log("Start tracking...");
-            
-
-            while (!hasMarker1Set || !hasMarker2Set)
-            {
-                if (marker1Observer.TargetStatus.Status == Status.TRACKED)
-                {
-                    OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
-                    // Set spine
-                    spine.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
-                    hasMarker1Set = true;
-                    
-                    Debug.Log($"Marker 1 tracked. Spine is at {spine.transform.position}, {spine.transform.rotation.eulerAngles}");
-                }
-
-                if (marker2Observer.TargetStatus.Status == Status.TRACKED)
-                {
-                    OToMarker2 = Matrix4x4.TRS(marker2.transform.position, marker2.transform.rotation, Vector3.one);
-                    OToKinect = Matrix4x4.TRS(kinectPlaceholder.transform.position, kinectPlaceholder.transform.rotation, Vector3.one);
-                    // Set kinect
-                    //trackedPoseDriver.enabled = false;
-                    kinect.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
-                    hasMarker2Set = true;
-                    
-                    Debug.Log($"Marker 2 tracked. kinect is at {kinect.transform.position}, {kinect.transform.rotation.eulerAngles}");
-                }
-
-                yield return null;
-            }
-
-            Debug.Log($"OToMarker1 \n {OToMarker1.GetPosition()}, {OToMarker1.rotation.eulerAngles} \n " +
-                $"OToMarker2 {OToMarker2.GetPosition()}, {OToMarker2.rotation.eulerAngles}");
-            Debug.Log("Finish tracking");
-            marker1Observer.enabled = false;
-            marker2Observer.enabled = false;
-        }
-
 
         private void InitializeSocket()
         {
@@ -310,7 +241,7 @@ namespace Kinect4Azure
 
                 if (requestSocket.TryReceiveFrameBytes(TimeSpan.FromSeconds(1), out var msg))
                 {
-                    //Debug.Log($"Received Frame data: {msg.Length} bytes");
+                    Debug.Log($"Received Frame data: {msg.Length} bytes");
 
                     // Get delay
                     long timestamp = BitConverter.ToInt64(msg, 0);
@@ -319,11 +250,7 @@ namespace Kinect4Azure
 
                     long receivedTimestamp = DateTime.UtcNow.Ticks;
                     double delayMilliseconds = (receivedTimestamp - timestamp) / TimeSpan.TicksPerMillisecond;
-                    //Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
-                    //UnityMainThreadDispatcher.Dispatcher.Enqueue(() =>
-                    //{
-                    //    DelayTMP.SetText($"Delay in requesting this frame: {delayMilliseconds}");
-                    //});
+                    Debug.Log($"Delay for this processing frame: {delayMilliseconds} ms");
 
                     // Get data
                     lock (dataLock)
@@ -350,8 +277,6 @@ namespace Kinect4Azure
 
         private void Update()
         {
-            Debug.Log($"Main camera is at {Camera.main.transform.position}, {Camera.main.transform.rotation.eulerAngles}");
-            
             if (depthData != null && colorInDepthData != null)
             {
                 long timeBegin = DateTime.UtcNow.Ticks;
@@ -363,8 +288,6 @@ namespace Kinect4Azure
 
                     ColorInDepthImage.LoadRawTextureData(colorInDepthData.ToArray());
                     ColorInDepthImage.Apply();
-
-                    //DebugImage.texture = ColorInDepthImage;
                 }
 
                 // Compute triangulation of PointCloud + maybe duplicate depending on the shader

@@ -1,7 +1,13 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using Unity.VisualScripting;
 using UnityEditor;
 using UnityEngine;
+using Vuforia;
+using UnityEngine.SpatialTracking;
+using UnityEngine.InputSystem;
+using TMPro;
 
 [RequireComponent(typeof(Camera))]
 public class PBM_Observer : MonoBehaviour
@@ -20,12 +26,54 @@ public class PBM_Observer : MonoBehaviour
     public Texture2D BorderTexture;
     public Texture2D MirrorSpecular;
 
-    [Space]
-    public List<Camera> CapturingCameras;
-    private int NumCapturingCameras = 0;
-    private List<Camera> CapturingCameraMemory = new List<Camera>();
-    public Dictionary<PBM_CaptureCamera, PBM> PBMs;
     private Camera ObserverCam;
+    private PBM_CaptureCamera CapturingCamera;
+    private PBM pbm;
+
+    [SerializeField] private GameObject spine;
+    [SerializeField] private GameObject spinePlaceholder;
+    [SerializeField] private GameObject kinectPlaceholder;
+    [SerializeField] private GameObject marker1;
+    [SerializeField] private GameObject marker2;
+    private Matrix4x4 OToMarker1;
+    private Matrix4x4 OToMarker2;
+    private Matrix4x4 OToKinect;
+    private Matrix4x4 OToCam;
+
+    private Matrix4x4 CamToKinect = new Matrix4x4
+    {
+        m00 = -0.20884f,
+        m01 = 0.00000f,
+        m02 = 0.97795f,
+        m03 = -2.88703f,
+        m10 = 0.00000f,
+        m11 = 1.00000f,
+        m12 = 0.00000f,
+        m13 = 0.17000f,
+        m20 = -0.97795f,
+        m21 = 0.00000f,
+        m22 = -0.20884f,
+        m23 = 4.53286f,
+        m30 = 0.00000f,
+        m31 = 0.00000f,
+        m32 = 0.00000f,
+        m33 = 1.00000f
+    };
+
+    private ObserverBehaviour marker1Observer;
+    private ObserverBehaviour marker2Observer;
+
+    [Header("Input Actions")]
+    public InputAction CalibrationSpineAction;  // Xbox A Button
+    public InputAction CalibrationKinectAction; // Xbox B Button
+
+    [Header("UI Elements")]
+    public TextMeshProUGUI statusText; // UI text for displaying calibration state
+
+    private bool spineCalibrated = false;
+    private bool kinectCalibrated = false;
+    private bool trackingSpine = false;
+    private bool trackingKinect = false;
 
     // PBM variables
     public class PBM
@@ -63,64 +111,92 @@ public class PBM_Observer : MonoBehaviour
         Instance = this;
 
         ObserverCam = GetComponent<Camera>();
-        PBMs = new Dictionary<PBM_CaptureCamera, PBM>();
+
 
         if (BorderTexture == null)
             BorderTexture = Resources.Load("PBM/PBM_MirrorFrame") as Texture2D;
         if (MirrorSpecular == null)
             MirrorSpecular = Resources.Load("PBM/PBM_MirrorSpecular") as Texture2D;
 
+        marker1Observer = marker1.GetComponent<ObserverBehaviour>();
+        marker2Observer = marker2.GetComponent<ObserverBehaviour>();
+
+        UpdateStatusText("Press A to calibrate spine");
+    }
+    private void OnEnable()
+    {
+        CalibrationSpineAction.Enable();
+        CalibrationSpineAction.performed += OnCalibrateSpine;
+
+        CalibrationKinectAction.Enable();
+        CalibrationKinectAction.performed += OnCalibrateKinect;
     }
 
-    private void LateUpdate()
+    private void OnDisable()
     {
-        if(NumCapturingCameras != CapturingCameras.Count)
+        CalibrationSpineAction.Disable();
+        CalibrationSpineAction.performed -= OnCalibrateSpine;
+
+        CalibrationKinectAction.Disable();
+        CalibrationKinectAction.performed -= OnCalibrateKinect;
+    }
+
+    private void OnCalibrateSpine(InputAction.CallbackContext context)
+    {
+        if (!trackingSpine)
         {
-            
-            foreach (var c in CapturingCameras)
-            {
-                var capturer = c.GetComponent<PBM_CaptureCamera>();
-                if (!capturer)
-                    capturer = c.gameObject.AddComponent<PBM_CaptureCamera>();
-                RegisterCapturer(capturer);
-            }
-            foreach(var camera in CapturingCameraMemory)
-            {
-                if (!CapturingCameras.Contains(camera))
-                {
-                    var pbm_cam = camera.gameObject.GetComponent<PBM_CaptureCamera>();
-                    if (pbm_cam)
-                    {
-                        if (PBMs.ContainsKey(pbm_cam))
-                        {
-                            PBMs[pbm_cam].DestroyContent();
-                            PBMs.Remove(pbm_cam);
-                        }
-                            
-                        Destroy(pbm_cam);
-                    }
-                        
-                }
-                    
-            }
-            CapturingCameraMemory = new List<Camera>(CapturingCameras);
-            NumCapturingCameras = CapturingCameras.Count;
+            StartCoroutine(CalibrateSpine());
+        }
+        else
+        {
+            trackingSpine = false;
+            UpdateStatusText("Press B to calibrate Kinect");
+            Debug.Log("Spine calibration confirmed.");
+        }
+    }
+
+    private void OnCalibrateKinect(InputAction.CallbackContext context)
+    {
+        if (!spineCalibrated)
+        {
+            UpdateStatusText("Calibrate spine first (Press A)");
+            return;
         }
 
-        foreach (var pbm in PBMs)
+        if (!trackingKinect)
         {
-            if(pbm.Key!=null)
-                UpdatePBM(pbm.Key);
+            StartCoroutine(CalibrateKinect());
+        }
+        else
+        {
+            trackingKinect = false;
+            if(pbm == null && CapturingCamera == null)
+            {
+                pbm = new PBM();
+                CapturingCamera = FindObjectOfType<PBM_CaptureCamera>();
+                CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
+                RegisterCapturer(CapturingCamera);
+                Debug.Log("Kinect calibration confirmed. Initialize pbm and CapturingCamera");
+                UpdateStatusText("Kinect calibration confirmed. Initialized pbm and CapturingCamera");
+
+                Debug.Log($"observer camera transform {ObserverCam.transform.position}, {ObserverCam.transform.rotation.eulerAngles}");
+            }
+            else if (pbm != null && CapturingCamera != null)
+            {
+                CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
+                pbm.ImageQuad.transform.parent = CapturingCamera.transform;
+                Debug.Log("Kinect calibration confirmed. Update pbm and CapturingCamera");
+                UpdateStatusText("Kinect calibration confirmed. Updated pbm and CapturingCamera");
+            }
         }
     }
 
     private void RegisterCapturer(PBM_CaptureCamera capturer)
     {
-        PBM pbm = new PBM();
         pbm.SourceCamera = capturer.GetComponent<Camera>();
         pbm.ImageQuad = new GameObject();
         pbm.ImageQuad.name = "PBM_" + capturer.name;
-        pbm.ImageQuad.transform.parent = ObserverCam.transform;
+        pbm.ImageQuad.transform.parent = capturer.transform;
         pbm.ImageQuad.transform.localPosition = Vector3.zero;
         pbm.ImageQuad.transform.localRotation = Quaternion.identity;
         pbm.ImageQuad.transform.localScale = Vector3.one;
@@ -138,108 +214,179 @@ public class PBM_Observer : MonoBehaviour
         pbm.CropSize = CropSize;
         pbm.Transparency = Transparency;
         pbm.BorderSize = 0.01f;
-
-        PBMs[capturer] = pbm;
     }
 
-    private void UpdatePBM(PBM_CaptureCamera capturer)
+
+    private IEnumerator CalibrateSpine()
     {
-        if(PBMs.ContainsKey(capturer))
+        trackingSpine = true;
+        EnableTracking(marker1Observer);
+        UpdateStatusText("Tracking marker 1... Press A again to confirm.");
+
+        while (trackingSpine)
         {
-            var c_PBM = PBMs[capturer];
-
-            if (!capturer.isActiveAndEnabled)
+            if (marker1Observer.TargetStatus.Status == Status.TRACKED)
             {
-                c_PBM.ImageQuad.SetActive(false);
-                return;
+                OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
+                spine.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
+                Debug.Log("Marker 1 tracked and updated.");
             }
+            yield return null;
+        }
 
-            var cameraMidPoint = (capturer.transform.position + ObserverCam.transform.position) / 2;
+        Debug.Log($"spine transform {spine.transform.position}, {spine.transform.rotation.eulerAngles}");
+        DisableTracking(marker1Observer);
+        spineCalibrated = true;
+    }
 
-            var mirrorNormal = Vector3.Normalize(ObserverCam.transform.position - cameraMidPoint);
+    private IEnumerator CalibrateKinect()
+    {
+        trackingKinect = true;
+        EnableTracking(marker2Observer);
+        UpdateStatusText("Tracking marker 2... Press B again to confirm.");
 
-            capturer.UpdateValidAreaCompensationWithObserver(ObserverCam.transform.position);
-
-            if (ComputePlaneCornerIntersection(capturer, cameraMidPoint, mirrorNormal,
-                out var lt_world, out var rt_world, out var rb_world, out var lb_world, true))
+        while (trackingKinect)
+        {
+            if (marker2Observer.TargetStatus.Status == Status.TRACKED)
             {
-   
-                if (Line3DIntersection(lt_world, rb_world, rt_world, lb_world, out var center))
+                OToMarker2 = Matrix4x4.TRS(marker2.transform.position, marker2.transform.rotation, Vector3.one);
+                OToKinect = Matrix4x4.TRS(kinectPlaceholder.transform.position, kinectPlaceholder.transform.rotation, Vector3.one);
+                Debug.Log("Marker 2 tracked and updated.");
+            }
+            yield return null;
+        }
+
+        Debug.Log($"kinect transform {OToKinect.GetPosition()}, {OToKinect.rotation.eulerAngles}");
+        DisableTracking(marker2Observer);
+        kinectCalibrated = true;
+    }
+
+    private void EnableTracking(ObserverBehaviour marker)
+    {
+        marker.enabled = true;
+        Debug.Log($"Tracking enabled for {marker.name}");
+    }
+
+    private void DisableTracking(ObserverBehaviour marker)
+    {
+        marker.enabled = false;
+        Debug.Log($"Tracking disabled for {marker.name}");
+    }
+
+    private void UpdateStatusText(string message)
+    {
+        if (statusText != null)
+        {
+            statusText.text = message;
+        }
+    }
+
+
+    private void Update()
+    {
+        if (pbm != null && CapturingCamera != null)
+        {
+            UpdateStatusText("");
+            UpdatePBM();
+        }
+    }
+
+    private void UpdatePBM()
+    {
+        var c_PBM = pbm;
+
+        if (!CapturingCamera.isActiveAndEnabled)
+        {
+            c_PBM.ImageQuad.SetActive(false);
+            return;
+        }
+
+        var cameraMidPoint = (CapturingCamera.transform.position + ObserverCam.transform.position) / 2;
+
+        var mirrorNormal = Vector3.Normalize(ObserverCam.transform.position - cameraMidPoint);
+
+        CapturingCamera.UpdateValidAreaCompensationWithObserver(ObserverCam.transform.position);
+
+        if (ComputePlaneCornerIntersection(CapturingCamera, cameraMidPoint, mirrorNormal,
+            out var lt_world, out var rt_world, out var rb_world, out var lb_world, true))
+        {
+
+            if (Line3DIntersection(lt_world, rb_world, rt_world, lb_world, out var center))
+            {
+
+                c_PBM.ImageQuad.SetActive(true);
+
+                c_PBM.CropAndTransparency.SetFloat("CompensationRatio", CapturingCamera.Ratio);
+                // Cropping
+                if (c_PBM.EnableCropping)
                 {
+                    c_PBM.CropAndTransparency.SetFloat("_EnableCropping", 1);
 
-                    c_PBM.ImageQuad.SetActive(true);
+                    var gazeRay = new Ray(ObserverCam.transform.position, ObserverCam.transform.forward);
+                    Plane p = new Plane(mirrorNormal, cameraMidPoint);
 
-                    c_PBM.CropAndTransparency.SetFloat("CompensationRatio", capturer.Ratio);
-                    // Cropping
-                    if (c_PBM.EnableCropping)
+                    if (p.Raycast(gazeRay, out float hitPlane))
                     {
-                        c_PBM.CropAndTransparency.SetFloat("_EnableCropping", 1);
+                        var hitPosition = gazeRay.GetPoint(hitPlane);
 
-                        var gazeRay = new Ray(ObserverCam.transform.position, ObserverCam.transform.forward);
-                        Plane p = new Plane(mirrorNormal, cameraMidPoint);
+                        // Project point onto top edge
+                        var screenPoint = (Vector2)c_PBM.SourceCamera.WorldToViewportPoint(hitPosition);
+                        var cropAndTransMat = c_PBM.CropAndTransparency;
 
-                        if (p.Raycast(gazeRay, out float hitPlane))
-                        {
-                            var hitPosition = gazeRay.GetPoint(hitPlane);
-
-                            // Project point onto top edge
-                            var screenPoint = (Vector2)c_PBM.SourceCamera.WorldToViewportPoint(hitPosition);
-                            var cropAndTransMat = c_PBM.CropAndTransparency;
-
-                            cropAndTransMat.SetVector("uv_topleft", new Vector2(Mathf.Clamp01(screenPoint.x - c_PBM.CropSize), Mathf.Clamp01(screenPoint.y - c_PBM.CropSize)));
-                            cropAndTransMat.SetVector("uv_topright", new Vector2(Mathf.Clamp01(screenPoint.x + c_PBM.CropSize), Mathf.Clamp01(screenPoint.y - c_PBM.CropSize)));
-                            cropAndTransMat.SetVector("uv_bottomleft", new Vector2(Mathf.Clamp01(screenPoint.x - c_PBM.CropSize), Mathf.Clamp01(screenPoint.y + c_PBM.CropSize)));
-                            cropAndTransMat.SetVector("uv_bottomright", new Vector2(Mathf.Clamp01(screenPoint.x + c_PBM.CropSize), Mathf.Clamp01(screenPoint.y + c_PBM.CropSize)));
-                        }
-                    }else
-                    {
-                        c_PBM.CropAndTransparency.SetFloat("_EnableCropping", 0);
+                        cropAndTransMat.SetVector("uv_topleft", new Vector2(Mathf.Clamp01(screenPoint.x - c_PBM.CropSize), Mathf.Clamp01(screenPoint.y - c_PBM.CropSize)));
+                        cropAndTransMat.SetVector("uv_topright", new Vector2(Mathf.Clamp01(screenPoint.x + c_PBM.CropSize), Mathf.Clamp01(screenPoint.y - c_PBM.CropSize)));
+                        cropAndTransMat.SetVector("uv_bottomleft", new Vector2(Mathf.Clamp01(screenPoint.x - c_PBM.CropSize), Mathf.Clamp01(screenPoint.y + c_PBM.CropSize)));
+                        cropAndTransMat.SetVector("uv_bottomright", new Vector2(Mathf.Clamp01(screenPoint.x + c_PBM.CropSize), Mathf.Clamp01(screenPoint.y + c_PBM.CropSize)));
                     }
-
-                    c_PBM.CropAndTransparency.EnableKeyword("USE_MIRROR_SPECULAR_");
-
-                    c_PBM.CropAndTransparency.SetFloat("MainTextureTransparency", c_PBM.Transparency);
-
-                    c_PBM.CropAndTransparency.SetFloat("BorderSize", c_PBM.BorderSize);
-
-                    c_PBM.CropAndTransparency.SetTexture("_MirrorFrameTex", BorderTexture);
-
-                    c_PBM.CropAndTransparency.SetTexture("_MirrorSpecular", MirrorSpecular);
-
-
-                    Graphics.Blit(capturer.ViewRenderTexture, c_PBM.Texture, c_PBM.CropAndTransparency);
-
-                    var cam2Tranform = ObserverCam.transform.worldToLocalMatrix;
-                    c_PBM.ImageQuadMesh.vertices = new Vector3[]
-                    {
-                            cam2Tranform.MultiplyPoint(lt_world),
-                            cam2Tranform.MultiplyPoint(rt_world),
-                            cam2Tranform.MultiplyPoint(rb_world),
-                            cam2Tranform.MultiplyPoint(lb_world)
-                    };
-
-                    float lbd = (Vector3.Distance(lb_world, center) + Vector3.Distance(rt_world, center)) / Vector3.Distance(rt_world, center);
-                    float rbd = (Vector3.Distance(rb_world, center) + Vector3.Distance(lt_world, center)) / Vector3.Distance(lt_world, center);
-                    float rtb = (Vector3.Distance(rt_world, center) + Vector3.Distance(lb_world, center)) / Vector3.Distance(lb_world, center);
-                    float ltb = (Vector3.Distance(lt_world, center) + Vector3.Distance(rb_world, center)) / Vector3.Distance(rb_world, center);
-
-                    c_PBM.ImageQuadMesh.SetUVs(0, new Vector3[] { new Vector3(0, ltb, ltb), new Vector3(rtb, rtb, rtb), new Vector3(rbd, 0, rbd), new Vector3(0, 0, lbd) });
-
-                    c_PBM.ImageQuadMesh.SetIndices(new int[] { 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 }, MeshTopology.Triangles, 0);
-                    c_PBM.ImageQuadMesh.RecalculateBounds();
                 }
                 else
                 {
-                    c_PBM.ImageQuad.SetActive(false);
+                    c_PBM.CropAndTransparency.SetFloat("_EnableCropping", 0);
                 }
 
+                c_PBM.CropAndTransparency.EnableKeyword("USE_MIRROR_SPECULAR_");
+
+                c_PBM.CropAndTransparency.SetFloat("MainTextureTransparency", c_PBM.Transparency);
+
+                c_PBM.CropAndTransparency.SetFloat("BorderSize", c_PBM.BorderSize);
+
+                c_PBM.CropAndTransparency.SetTexture("_MirrorFrameTex", BorderTexture);
+
+                c_PBM.CropAndTransparency.SetTexture("_MirrorSpecular", MirrorSpecular);
+
+
+                Graphics.Blit(CapturingCamera.ViewRenderTexture, c_PBM.Texture, c_PBM.CropAndTransparency);
+
+                var cam2Tranform = CapturingCamera.transform.worldToLocalMatrix;
+                c_PBM.ImageQuadMesh.vertices = new Vector3[]
+                {
+                        cam2Tranform.MultiplyPoint(lt_world),
+                        cam2Tranform.MultiplyPoint(rt_world),
+                        cam2Tranform.MultiplyPoint(rb_world),
+                        cam2Tranform.MultiplyPoint(lb_world)
+                };
+
+                float lbd = (Vector3.Distance(lb_world, center) + Vector3.Distance(rt_world, center)) / Vector3.Distance(rt_world, center);
+                float rbd = (Vector3.Distance(rb_world, center) + Vector3.Distance(lt_world, center)) / Vector3.Distance(lt_world, center);
+                float rtb = (Vector3.Distance(rt_world, center) + Vector3.Distance(lb_world, center)) / Vector3.Distance(lb_world, center);
+                float ltb = (Vector3.Distance(lt_world, center) + Vector3.Distance(rb_world, center)) / Vector3.Distance(rb_world, center);
+
+                c_PBM.ImageQuadMesh.SetUVs(0, new Vector3[] { new Vector3(0, ltb, ltb), new Vector3(rtb, rtb, rtb), new Vector3(rbd, 0, rbd), new Vector3(0, 0, lbd) });
+
+                c_PBM.ImageQuadMesh.SetIndices(new int[] { 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 }, MeshTopology.Triangles, 0);
+                c_PBM.ImageQuadMesh.RecalculateBounds();
             }
             else
             {
                 c_PBM.ImageQuad.SetActive(false);
             }
+
         }
-        
+        else
+        {
+            c_PBM.ImageQuad.SetActive(false);
+        }
+
     }
 
     private void PrintVector(string name, Vector3 v)
@@ -384,37 +531,3 @@ public class PBM_Observer : MonoBehaviour
         t.localScale = new Vector3(globalScale.x / t.lossyScale.x, globalScale.y / t.lossyScale.y, globalScale.z / t.lossyScale.z);
     }
 }
-
-#if UNITY_EDITOR
-[CustomEditor(typeof(PBM_Observer))]
-public class PBM_ObserverEditor : Editor
-{
-    public override void OnInspectorGUI()
-    {
-        PBM_Observer myTarget = (PBM_Observer)target;
-
-        DrawDefaultInspector();
-
-        if (myTarget.PBMs != null)
-        {
-            foreach (var pbm in myTarget.PBMs)
-            {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField(pbm.Value.SourceCamera.name);
-                pbm.Value.EnableCropping = EditorGUILayout.Toggle("Cropping", pbm.Value.EnableCropping);
-                if (pbm.Value.EnableCropping)
-                {
-                    EditorGUILayout.LabelField("CropSize");
-                    pbm.Value.CropSize = EditorGUILayout.Slider(pbm.Value.CropSize, 0.01f, 1f);
-                }
-                EditorGUILayout.LabelField("Transparency");
-                pbm.Value.Transparency = EditorGUILayout.Slider(pbm.Value.Transparency, 0.01f, 1);
-
-                EditorGUILayout.LabelField("Border Size");
-                pbm.Value.BorderSize = EditorGUILayout.Slider(pbm.Value.BorderSize, 0f, 0.5f);
-            }
-        }
-
-    }
-}
-#endif

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<QCARConfig>
+  <Tracking>
+    <ImageTarget name="chips" size="0.123500 0.086450" />
+  </Tracking>
+</QCARConfig>

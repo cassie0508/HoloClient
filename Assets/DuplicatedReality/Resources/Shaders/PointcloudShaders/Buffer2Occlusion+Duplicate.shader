@@ -8,7 +8,7 @@ Shader "DR/Buffer2Occlusion+Duplicate"
 	{
 		Tags { "RenderType" = "Opaque" }
 
-		// Occlusion Pass with added clipping logic
+		//Occlusion Pass with added clipping logic
 		// Pass
 		// {
 		// 	ZWrite On

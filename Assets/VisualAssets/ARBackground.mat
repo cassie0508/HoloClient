@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: ARBackground
-  m_Shader: {fileID: 4800000, guid: f044061923ae06d438cdb9448a11ac0b, type: 3}
+  m_Shader: {fileID: 4800000, guid: c8da5427d402be94581b4956381bf3a9, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -30,6 +30,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _ColorMask: 15
+    - _Shininess: 20
     - _Stencil: 0
     - _StencilComp: 8
     - _StencilOp: 0
@@ -39,4 +40,5 @@ Material:
     - _Width: 0.05
     m_Colors:
     - _Color: {r: 1, g: 0, b: 0, a: 0.44705883}
+    - _SpecularColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
