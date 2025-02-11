@@ -1,64 +1,35 @@
-using System.Collections.Generic;
+using Microsoft.MixedReality.Toolkit;
+using Microsoft.MixedReality.Toolkit.Input;
 using UnityEngine;
-using UnityEngine.XR;
 
 public class EyeGazeTracker : MonoBehaviour
 {
-    public Transform gazeIndicator; // Assign a small sphere in the Inspector to visualize gaze
+    private IMixedRealityGazeProvider gazeProvider;
 
     void Start()
     {
-        var devices = new List<InputDevice>();
-        InputDevices.GetDevicesWithCharacteristics(InputDeviceCharacteristics.EyeTracking, devices);
-
-        if (devices.Count > 0)
+        if (CoreServices.InputSystem != null)
         {
-            Debug.Log("Eye tracking device found.");
+            gazeProvider = CoreServices.InputSystem.GazeProvider;
         }
-        else
+
+        if (gazeProvider == null)
         {
-            Debug.Log("No eye tracking device found.");
+            Debug.LogError("GazeProvider not found£¡");
         }
     }
-
 
     void Update()
     {
-        if (TryGetEyeGaze(out Vector3 gazeOrigin, out Vector3 gazeDirection))
+        if (gazeProvider != null)
         {
-            Debug.Log($"Eye Gaze Origin: {gazeOrigin}, Direction: {gazeDirection}");
-            if (Physics.Raycast(gazeOrigin, gazeDirection, out RaycastHit hit, 10f)) // Limit raycast distance
-            {
-                Debug.Log($"Hit detected at {hit.point}");
-                gazeIndicator.position = hit.point;
-            }
-            else
-            {
-                Debug.Log("No hit detected.");
-            }
-        }
-        else
-        {
-            Debug.Log("Eye tracking data not available.");
-        }
-    }
+            Vector3 gazeOrigin = gazeProvider.GazeOrigin;
 
+            Vector3 gazeDirection = gazeProvider.GazeDirection;
 
-    private bool TryGetEyeGaze(out Vector3 origin, out Vector3 direction)
-    {
-        origin = Vector3.zero;
-        direction = Vector3.forward;
+            Debug.DrawRay(gazeOrigin, gazeDirection * 5, Color.red);
 
-        InputDevice eyeDevice = InputDevices.GetDeviceAtXRNode(XRNode.CenterEye);
-        if (eyeDevice.TryGetFeatureValue(CommonUsages.eyesData, out Eyes eyes))
-        {
-            if (eyes.TryGetFixationPoint(out Vector3 fixationPoint))
-            {
-                origin = Camera.main.transform.position;
-                direction = (fixationPoint - origin).normalized;
-                return true;
-            }
+            Debug.Log($"Gaze Origin: {gazeOrigin}, Gaze Direction: {gazeDirection}");
         }
-        return false;
     }
 }

@@ -8,6 +8,8 @@ using Vuforia;
 using UnityEngine.SpatialTracking;
 using UnityEngine.InputSystem;
 using TMPro;
+using Microsoft.MixedReality.Toolkit.Input;
+using Microsoft.MixedReality.Toolkit;
 
 [RequireComponent(typeof(Camera))]
 public class PBM_Observer : MonoBehaviour
@@ -30,6 +32,7 @@ public class PBM_Observer : MonoBehaviour
     private PBM_CaptureCamera CapturingCamera;
     private PBM pbm;
 
+    [SerializeField] private GameObject phantom;
     [SerializeField] private GameObject spine;
     [SerializeField] private GameObject spinePlaceholder;
     [SerializeField] private GameObject kinectPlaceholder;
@@ -74,6 +77,8 @@ public class PBM_Observer : MonoBehaviour
     private bool kinectCalibrated = false;
     private bool trackingSpine = false;
     private bool trackingKinect = false;
+
+    private IMixedRealityGazeProvider gazeProvider;
 
     // PBM variables
     public class PBM
@@ -122,7 +127,18 @@ public class PBM_Observer : MonoBehaviour
         marker2Observer = marker2.GetComponent<ObserverBehaviour>();
 
         UpdateStatusText("Press A to calibrate spine");
+
+        if (CoreServices.InputSystem != null)
+        {
+            gazeProvider = CoreServices.InputSystem.GazeProvider;
+        }
+
+        if (gazeProvider == null)
+        {
+            Debug.LogError("GazeProvider not found！");
+        }
     }
+
     private void OnEnable()
     {
         CalibrationSpineAction.Enable();
@@ -228,7 +244,8 @@ public class PBM_Observer : MonoBehaviour
             if (marker1Observer.TargetStatus.Status == Status.TRACKED)
             {
                 OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
-                spine.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
+                // Set phantom transform will affect the child spine
+                phantom.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
                 Debug.Log("Marker 1 tracked and updated.");
             }
             yield return null;
@@ -286,6 +303,24 @@ public class PBM_Observer : MonoBehaviour
     {
         if (pbm != null && CapturingCamera != null)
         {
+            if (gazeProvider != null)
+            {
+                Vector3 gazeOrigin = gazeProvider.GazeOrigin;
+                Vector3 gazeDirection = gazeProvider.GazeDirection;
+
+                //Debug.DrawRay(gazeOrigin, gazeDirection * 5, Color.red);
+                Debug.Log($"Gaze Origin: {gazeOrigin}, Gaze Direction: {gazeDirection}");
+
+                Ray gazeRay = new Ray(gazeOrigin, gazeDirection);
+                RaycastHit hitInfo;
+
+                if (phantom.GetComponent<BoxCollider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                {
+                    Debug.Log($"Gaze hit Phantom at: {hitInfo.point}");
+                    //Debug.DrawRay(gazeOrigin, gazeDirection * hitInfo.distance, Color.green);
+                }
+            }
+
             UpdateStatusText("");
             UpdatePBM();
         }
