@@ -43,26 +43,6 @@ public class PBM_Observer : MonoBehaviour
     private Matrix4x4 OToKinect;
     private Matrix4x4 OToCam;
 
-    private Matrix4x4 CamToKinect = new Matrix4x4
-    {
-        m00 = -0.20884f,
-        m01 = 0.00000f,
-        m02 = 0.97795f,
-        m03 = -2.88703f,
-        m10 = 0.00000f,
-        m11 = 1.00000f,
-        m12 = 0.00000f,
-        m13 = 0.17000f,
-        m20 = -0.97795f,
-        m21 = 0.00000f,
-        m22 = -0.20884f,
-        m23 = 4.53286f,
-        m30 = 0.00000f,
-        m31 = 0.00000f,
-        m32 = 0.00000f,
-        m33 = 1.00000f
-    };
-
     private ObserverBehaviour marker1Observer;
     private ObserverBehaviour marker2Observer;
 

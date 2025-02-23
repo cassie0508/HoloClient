@@ -21,7 +21,7 @@ EditorBuildSettings:
     path: Assets/Scenes/Test_TwoMarkers.unity
     guid: e3c8c952dd0c3fb4abe5310d0860f947
   - enabled: 1
-    path: Assets/Scenes/Mirror_SampleScene 2.unity
+    path: Assets/Scenes/Mirror_SampleScene.unity
     guid: 92a809efe4b0205479d9d412db0e11f4
   - enabled: 0
     path: Assets/Scenes/Replica_SampleScene 1.unity

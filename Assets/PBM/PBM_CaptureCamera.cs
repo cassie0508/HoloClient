@@ -1,7 +1,9 @@
 ﻿using PubSub;
 using System;
 using System.Text.RegularExpressions;
+using TMPro;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Vuforia;
 
 [RequireComponent(typeof(Camera))]
@@ -21,6 +23,16 @@ public class PBM_CaptureCamera : MonoBehaviour
     public RenderTexture ViewRenderTexture;
     private Camera _Camera;
     private Material RealVirtualMergeMaterial;
+
+    [Header("Input Actions")]
+    public InputAction SetHostAction;  // Xbox Y Button
+
+    [Header("UI Elements")]
+    public GameObject inputPanel;  
+    public TMP_InputField hostInputField; 
+
+    private bool isInputVisible = false; 
+
 
     #region Image Variables
     // The offset of two pixel increases stability during compensation
@@ -84,21 +96,87 @@ public class PBM_CaptureCamera : MonoBehaviour
         ViewRenderTexture = new RenderTexture(_Width, _Height, 24);
         ViewRenderTexture.name = "PBMView";
         ViewRenderTexture.Create();
+
+        // Make sure input panel invisible
+        if (inputPanel != null)
+        {
+            inputPanel.SetActive(false);
+        }
     }
 
     private void Start()
+    {
+        SetupSubscriber();
+    }
+
+    private void SetupSubscriber()
     {
         try
         {
             subscriber = new Subscriber(host, port);
             subscriber.AddTopicCallback("Size", data => OnColorSizeReceived(data));
             subscriber.AddTopicCallback("Frame", data => OnColorFrameReceived(data));
-            Debug.Log("Subscriber setup complete with host: " + host + " and port: " + port);
+            Debug.Log($"Subscriber setup complete with host: {host} and port: {port}");
         }
         catch (Exception e)
         {
             Debug.LogError("Failed to start subscriber: " + e.Message);
         }
+    }
+
+    private void OnEnable()
+    {
+        SetHostAction.Enable();
+        SetHostAction.performed += OnSetHost;
+    }
+
+    private void OnDisable()
+    {
+        SetHostAction.Disable();
+        SetHostAction.performed -= OnSetHost;
+    }
+
+    private void OnSetHost(InputAction.CallbackContext context)
+    {
+        if (inputPanel == null || hostInputField == null) return;
+
+        if (!isInputVisible)
+        {
+            inputPanel.SetActive(true);
+            hostInputField.text = host;  // pre-write current host value
+            hostInputField.Select();
+            hostInputField.ActivateInputField();
+        }
+        else
+        {
+            // update host
+            string newHost = hostInputField.text.Trim();
+            if (!string.IsNullOrEmpty(newHost) && newHost != host)
+            {
+                host = newHost;
+                Debug.Log($"Updated Host: {host}");
+
+                // re-connect subscriber
+                if (subscriber != null)
+                {
+                    subscriber.Dispose();
+                    subscriber = null;
+                }
+
+                try
+                {
+                    SetupSubscriber();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"Failed to reinitialize subscriber: {ex.Message}");
+                }
+            }
+
+            inputPanel.SetActive(false);
+        }
+
+        isInputVisible = !isInputVisible;
     }
 
     private void OnColorSizeReceived(byte[] data)
