@@ -7,7 +7,7 @@ EditorBuildSettings:
   m_Scenes:
   - enabled: 0
     path: Assets/Scenes/Mirror_SampleScene.unity
-    guid: 8086e48a5dea23c4a99443d61f203387
+    guid: 92a809efe4b0205479d9d412db0e11f4
   - enabled: 0
     path: Assets/Scenes/Replica_SampleScene 3.unity
     guid: 9fc0d4010bbf28b4594072e72b8655ab
@@ -27,8 +27,8 @@ EditorBuildSettings:
     path: Assets/Scenes/Replica_SampleScene 1.unity
     guid: 09d083e0658852a4788618cf72aa4347
   - enabled: 0
-    path: Assets/Scenes/Mirror_SampleScene 3.unity
-    guid: 8f7e8f10249839949959d02dc404e607
+    path: Assets/Scenes/Replica_SampleScene.unity
+    guid: 1d4880537d0011f419703ccb25306231
   m_configObjects:
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 13e006632d85152479a0fd5af062ff4c, type: 2}
     com.unity.xr.openxr.settings4: {fileID: 11400000, guid: a5618ec3041f168488509e433f5d1920, type: 2}

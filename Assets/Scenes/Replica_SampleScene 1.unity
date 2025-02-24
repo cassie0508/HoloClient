@@ -608,7 +608,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   RegionOfInterest: {fileID: 341494584}
   DuplicatedReality: {fileID: 1868131224}
-  host: 10.2.2.43
+  host: 10.2.2.39
   port: 12345
   Depth2BufferShader: {fileID: 7200000, guid: f71f6f218a10b2d46bb54b48b8056559, type: 3}
   Shaders:

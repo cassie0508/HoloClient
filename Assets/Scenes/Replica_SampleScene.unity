@@ -493,11 +493,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   RegionOfInterest: {fileID: 448496896}
   DuplicatedReality: {fileID: 2101644625}
-  host: 10.2.2.43
+  host: 10.2.2.39
   port: 12345
-  DelayTMP: {fileID: 1017363892}
-  RenderTMP: {fileID: 1280411859}
-  DebugImage: {fileID: 1517135724}
   Depth2BufferShader: {fileID: 7200000, guid: f71f6f218a10b2d46bb54b48b8056559, type: 3}
   Shaders:
   - ID: Occlusion+Duplicate
@@ -544,8 +541,9 @@ MonoBehaviour:
   DepthImage: {fileID: 0}
   ColorInDepthImage: {fileID: 0}
   spine: {fileID: 367378734}
+  kinect: {fileID: 963194225}
   spinePlaceholder: {fileID: 1120156079}
-  kinect: {fileID: 1853284661}
+  kinectPlaceholder: {fileID: 1853284661}
   marker1: {fileID: 1427388201}
   marker2: {fileID: 1750277297}
 --- !u!114 &963194233
