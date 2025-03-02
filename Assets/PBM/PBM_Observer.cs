@@ -32,6 +32,7 @@ public class PBM_Observer : MonoBehaviour
     private PBM_CaptureCamera CapturingCamera;
     private PBM pbm;
 
+    [Header("Calibration")]
     [SerializeField] private GameObject phantom;
     [SerializeField] private GameObject spine;
     [SerializeField] private GameObject spinePlaceholder;
@@ -41,7 +42,6 @@ public class PBM_Observer : MonoBehaviour
     private Matrix4x4 OToMarker1;
     private Matrix4x4 OToMarker2;
     private Matrix4x4 OToKinect;
-    private Matrix4x4 OToCam;
 
     private ObserverBehaviour marker1Observer;
     private ObserverBehaviour marker2Observer;
@@ -173,16 +173,14 @@ public class PBM_Observer : MonoBehaviour
                 CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
                 RegisterCapturer(CapturingCamera);
                 Debug.Log("Kinect calibration confirmed. Initialize pbm and CapturingCamera");
-                UpdateStatusText("Kinect calibration confirmed. Initialized pbm and CapturingCamera");
-
-                Debug.Log($"observer camera transform {ObserverCam.transform.position}, {ObserverCam.transform.rotation.eulerAngles}");
+                UpdateStatusText("");
             }
             else if (pbm != null && CapturingCamera != null)
             {
                 CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
                 pbm.ImageQuad.transform.parent = CapturingCamera.transform;
                 Debug.Log("Kinect calibration confirmed. Update pbm and CapturingCamera");
-                UpdateStatusText("Kinect calibration confirmed. Updated pbm and CapturingCamera");
+                UpdateStatusText("");
             }
         }
     }
@@ -301,7 +299,6 @@ public class PBM_Observer : MonoBehaviour
                 }
             }
 
-            UpdateStatusText("");
             UpdatePBM();
         }
     }
