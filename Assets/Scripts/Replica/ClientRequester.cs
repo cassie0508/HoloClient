@@ -70,18 +70,8 @@ namespace Kinect4Azure
         [SerializeField] private Texture2D ColorInDepthImage;
 
         [Header("Calibration")]
-        [SerializeField] private GameObject spine;
-        [SerializeField] private GameObject kinect1;
-        [SerializeField] private GameObject kinect2;
-        [SerializeField] private GameObject dup;
-        [SerializeField] private GameObject spinePlaceholder;
-        [SerializeField] private GameObject kinectPlaceholder;
-        [SerializeField] private GameObject dupPlaceholder;
         [SerializeField] private GameObject marker1;
         [SerializeField] private GameObject marker2;
-        private Matrix4x4 OToMarker1;
-        private Matrix4x4 OToMarker2;
-        private Matrix4x4 OToKinect;
 
         private ObserverBehaviour marker1Observer;
         private ObserverBehaviour marker2Observer;
@@ -89,14 +79,19 @@ namespace Kinect4Azure
         [Header("Input Actions")]
         public InputAction CalibrationSpineAction;  // Xbox A Button
         public InputAction CalibrationKinectAction; // Xbox B Button
+        public InputAction ShowShaderAction; // Xbox Y Button
+        public InputAction SwitchToNextShaderAction; // Xbox D-Pad Right Button
 
         [Header("UI Elements")]
-        public TextMeshProUGUI statusText; // UI text for displaying calibration state
+        public TextMeshProUGUI CalibrationText;
+        public TextMeshProUGUI ShaderText;
+
 
         private bool spineCalibrated = false;
         private bool kinectCalibrated = false;
         private bool trackingSpine = false;
         private bool trackingKinect = false;
+        private bool isShaderTextVisible = false;
 
 
         private byte[] cameraData;
@@ -122,6 +117,7 @@ namespace Kinect4Azure
         private ComputeBuffer _vb;
 
         private IMixedRealityGazeProvider gazeProvider;
+        private VuforiaBehaviour vuforia;
 
 
         private void Awake()
@@ -136,10 +132,9 @@ namespace Kinect4Azure
                 gazeProvider = CoreServices.InputSystem.GazeProvider;
             }
 
-            if (gazeProvider == null)
-            {
-                Debug.LogError("GazeProvider not found£¡");
-            }
+            vuforia = FindObjectOfType<VuforiaBehaviour>(true);
+
+            ShaderText.enabled = isShaderTextVisible;
         }
 
         private void OnEnable()
@@ -149,6 +144,12 @@ namespace Kinect4Azure
 
             CalibrationKinectAction.Enable();
             CalibrationKinectAction.performed += OnCalibrateKinect;
+
+            ShowShaderAction.Enable();
+            ShowShaderAction.performed += OnShowShader;
+
+            SwitchToNextShaderAction.Enable();
+            SwitchToNextShaderAction.performed += OnSwitchToNextShader;
         }
 
         private void OnDisable()
@@ -158,8 +159,19 @@ namespace Kinect4Azure
 
             CalibrationKinectAction.Disable();
             CalibrationKinectAction.performed -= OnCalibrateKinect;
+
+            ShowShaderAction.Disable();
+            ShowShaderAction.performed -= OnShowShader;
+
+            SwitchToNextShaderAction.Disable();
+            SwitchToNextShaderAction.performed -= OnSwitchToNextShader;
         }
 
+        [ContextMenu("Test Calibrate Spine")]
+        public void TestCalibrateSpine()
+        {
+            OnCalibrateSpine(new InputAction.CallbackContext());
+        }
         private void OnCalibrateSpine(InputAction.CallbackContext context)
         {
             if (!trackingSpine)
@@ -174,6 +186,11 @@ namespace Kinect4Azure
             }
         }
 
+        [ContextMenu("Test Calibrate Kinect")]
+        public void TestCalibrateKinect()
+        {
+            OnCalibrateKinect(new InputAction.CallbackContext());
+        }
         private void OnCalibrateKinect(InputAction.CallbackContext context)
         {
             if (!spineCalibrated)
@@ -201,6 +218,24 @@ namespace Kinect4Azure
             }
         }
 
+        private void OnShowShader(InputAction.CallbackContext context)
+        {
+            isShaderTextVisible = !isShaderTextVisible;
+            ShaderText.enabled = isShaderTextVisible;
+        }
+
+        private void OnSwitchToNextShader(InputAction.CallbackContext context)
+        {
+            NextShaderInList();
+        }
+
+        [ContextMenu("Test Pointcloud")]
+        public void TestPointCloud()
+        {
+            InitializeSocket();
+            StartCoroutine(RequestDataLoop());
+        }
+
         private IEnumerator CalibrateSpine()
         {
             trackingSpine = true;
@@ -209,18 +244,13 @@ namespace Kinect4Azure
 
             while (trackingSpine)
             {
-                if (marker1Observer.TargetStatus.Status == Status.TRACKED)
+                if (marker1Observer.TargetStatus.Status == Status.TRACKED)  // Will set its children
                 {
-                    // Will set its child spinePlaceholder(Spine world)
-                    OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
-                    spine.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
-                    dup.transform.SetPositionAndRotation(dupPlaceholder.transform.position, dupPlaceholder.transform.rotation);
                     Debug.Log("Marker 1 tracked and updated.");
                 }
                 yield return null;
             }
 
-            Debug.Log($"spine transform {spine.transform.position}, {spine.transform.rotation.eulerAngles}");
             DisableTracking(marker1Observer);
             spineCalibrated = true;
         }
@@ -233,44 +263,36 @@ namespace Kinect4Azure
 
             while (trackingKinect)
             {
-                if (marker2Observer.TargetStatus.Status == Status.TRACKED)
+                if (marker2Observer.TargetStatus.Status == Status.TRACKED)  // Will set its children
                 {
-                    OToMarker2 = Matrix4x4.TRS(marker2.transform.position, marker2.transform.rotation, Vector3.one);
-
-                    kinect1.transform.SetPositionAndRotation(kinectPlaceholder.transform.position, kinectPlaceholder.transform.rotation);
-                    kinect2.transform.SetPositionAndRotation(kinectPlaceholder.transform.position, kinectPlaceholder.transform.rotation);
-
-                    // Finally set Spine in Roi: Gievn Spine_world(spinePlaceholder), Roi_world(roi)
-                    //Matrix4x4 Spine2Roi = spinePlaceholder.transform.worldToLocalMatrix * roi.transform.localToWorldMatrix;
-                    //spine.transform.SetLocalPositionAndRotation(Spine2Roi.GetPosition(), Spine2Roi.rotation);
-
                     Debug.Log("Marker 2 tracked and updated.");
                 }
                 yield return null;
             }
 
-            Debug.Log($"kinect transform {kinectPlaceholder.transform.position}, {kinectPlaceholder.transform.rotation.eulerAngles}");
             DisableTracking(marker2Observer);
             kinectCalibrated = true;
         }
 
         private void EnableTracking(ObserverBehaviour marker)
         {
+            vuforia.enabled = true;
             marker.enabled = true;
             Debug.Log($"Tracking enabled for {marker.name}");
         }
 
         private void DisableTracking(ObserverBehaviour marker)
         {
+            vuforia.enabled = false;
             marker.enabled = false;
             Debug.Log($"Tracking disabled for {marker.name}");
         }
 
         private void UpdateStatusText(string message)
         {
-            if (statusText != null)
+            if (CalibrationText != null)
             {
-                statusText.text = message;
+                CalibrationText.text = message;
             }
         }
 
@@ -460,6 +482,12 @@ namespace Kinect4Azure
 
         private void Update()
         {
+            //var rendererROI = RegionOfInterest.GetComponent<Renderer>();
+            //if (rendererROI) rendererROI.enabled = true;
+
+            //var rendererDup = DuplicatedReality.GetComponent<Renderer>();
+            //if (rendererDup) rendererDup.enabled = true;
+
             if (depthData != null && colorInDepthData != null)
             {
                 long timeBegin = DateTime.UtcNow.Ticks;
@@ -505,11 +533,11 @@ namespace Kinect4Azure
                     Ray gazeRay = new Ray(gazeOrigin, gazeDirection);
                     RaycastHit hitInfo;
 
-                    if (spine.GetComponent<BoxCollider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
-                    {
-                        Debug.Log($"Gaze hit Phantom at: {hitInfo.point}");
-                        //Debug.DrawRay(gazeOrigin, gazeDirection * hitInfo.distance, Color.green);
-                    }
+                    //if (spine.GetComponent<BoxCollider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                    //{
+                    //    Debug.Log($"Gaze hit Phantom at: {hitInfo.point}");
+                    //    //Debug.DrawRay(gazeOrigin, gazeDirection * hitInfo.distance, Color.green);
+                    //}
                 }
             }
         }

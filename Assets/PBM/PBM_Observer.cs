@@ -34,8 +34,6 @@ public class PBM_Observer : MonoBehaviour
 
     [Header("Calibration")]
     [SerializeField] private GameObject phantom;
-    [SerializeField] private GameObject spine;
-    [SerializeField] private GameObject spinePlaceholder;
     [SerializeField] private GameObject kinectPlaceholder;
     [SerializeField] private GameObject marker1;
     [SerializeField] private GameObject marker2;
@@ -59,6 +57,7 @@ public class PBM_Observer : MonoBehaviour
     private bool trackingKinect = false;
 
     private IMixedRealityGazeProvider gazeProvider;
+    private VuforiaBehaviour vuforia;
 
     // PBM variables
     public class PBM
@@ -113,10 +112,7 @@ public class PBM_Observer : MonoBehaviour
             gazeProvider = CoreServices.InputSystem.GazeProvider;
         }
 
-        if (gazeProvider == null)
-        {
-            Debug.LogError("GazeProvider not found！");
-        }
+        vuforia = FindObjectOfType<VuforiaBehaviour>(true);
     }
 
     private void OnEnable()
@@ -219,17 +215,13 @@ public class PBM_Observer : MonoBehaviour
 
         while (trackingSpine)
         {
-            if (marker1Observer.TargetStatus.Status == Status.TRACKED)
+            if (marker1Observer.TargetStatus.Status == Status.TRACKED)  // Will set its children
             {
-                OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
-                // Set phantom transform will affect the child spine
-                phantom.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
                 Debug.Log("Marker 1 tracked and updated.");
             }
             yield return null;
         }
 
-        Debug.Log($"spine transform {spine.transform.position}, {spine.transform.rotation.eulerAngles}");
         DisableTracking(marker1Observer);
         spineCalibrated = true;
     }
@@ -258,12 +250,14 @@ public class PBM_Observer : MonoBehaviour
 
     private void EnableTracking(ObserverBehaviour marker)
     {
+        vuforia.enabled = true;
         marker.enabled = true;
         Debug.Log($"Tracking enabled for {marker.name}");
     }
 
     private void DisableTracking(ObserverBehaviour marker)
     {
+        vuforia.enabled = false;
         marker.enabled = false;
         Debug.Log($"Tracking disabled for {marker.name}");
     }

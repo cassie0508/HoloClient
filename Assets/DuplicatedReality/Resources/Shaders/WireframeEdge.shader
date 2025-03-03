@@ -21,8 +21,19 @@
 
             #include "UnityCG.cginc"
 
+            struct appdata
+			{
+                float4 vertex : POSITION;
+
+				// Single Instanced Pass Rendering
+				UNITY_VERTEX_INPUT_INSTANCE_ID
+			};
+
             struct v2g {
                 float4 worldPos : SV_POSITION;
+
+                // Single Instanced Pass Rendering
+				UNITY_VERTEX_OUTPUT_STEREO
             };
 
             struct g2f {
@@ -30,8 +41,14 @@
                 float3 bary : TEXCOORD0;
             };
 
-            v2g vert(appdata_base v) {
+            v2g vert(appdata v) {
                 v2g o;
+
+                UNITY_SETUP_INSTANCE_ID(v);
+                UNITY_INITIALIZE_OUTPUT(v2g, o);
+                UNITY_TRANSFER_INSTANCE_ID(v, o);
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(o);
+
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex);
                 return o;
             }
@@ -54,12 +71,17 @@
 
                 g2f o;
 
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(IN[0]);
                 o.pos = mul(UNITY_MATRIX_VP, IN[0].worldPos);
                 o.bary = float3(1., 0., 0.) + param;
                 triStream.Append(o);
+
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(IN[1]);
                 o.pos = mul(UNITY_MATRIX_VP, IN[1].worldPos);
                 o.bary = float3(0., 0., 1.) + param;
                 triStream.Append(o);
+
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(IN[2]);
                 o.pos = mul(UNITY_MATRIX_VP, IN[2].worldPos);
                 o.bary = float3(0., 1., 0.) + param;
                 triStream.Append(o);

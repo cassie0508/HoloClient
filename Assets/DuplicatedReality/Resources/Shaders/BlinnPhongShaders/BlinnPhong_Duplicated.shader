@@ -12,6 +12,7 @@ Shader "DR_Shader/BlinnPhong_Duplicated" {
       Tags { "LightMode" = "ForwardBase" }
 
       CGPROGRAM
+      #include "UnityCG.cginc"
       #pragma vertex vert
       #pragma fragment frag
 
@@ -31,6 +32,9 @@ Shader "DR_Shader/BlinnPhong_Duplicated" {
         float4 vertex : POSITION;
         float3 normal : NORMAL;
         float2 uv     : TEXCOORD0;
+
+        // Single Instanced Pass Rendering
+		UNITY_VERTEX_INPUT_INSTANCE_ID
       };
 
       // Vertex to Fragment
@@ -39,6 +43,9 @@ Shader "DR_Shader/BlinnPhong_Duplicated" {
         float3 normal   : NORMAL;
         float2 uv       : TEXCOORD0;
         float4 posWorld : TEXCOORD1;
+
+		// Single Instanced Pass Rendering
+		UNITY_VERTEX_OUTPUT_STEREO
       };
 
       //------------------------------------------------------------------------
@@ -46,6 +53,11 @@ Shader "DR_Shader/BlinnPhong_Duplicated" {
       //------------------------------------------------------------------------
       v2f vert(appdata v) {
         v2f o;
+
+        // Single Instanced Pass Rendering
+		UNITY_SETUP_INSTANCE_ID(v);
+		UNITY_INITIALIZE_OUTPUT(v2f, o);
+		UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
         float4 vertexPos = mul(_Roi2Dupl, mul(unity_ObjectToWorld, v.vertex));
         o.pos      = mul(UNITY_MATRIX_VP, vertexPos);

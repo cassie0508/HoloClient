@@ -25,7 +25,7 @@ public class PBM_CaptureCamera : MonoBehaviour
     private Material RealVirtualMergeMaterial;
 
     [Header("Input Actions")]
-    public InputAction SetHostAction;  // Xbox Y Button
+    public InputAction SetHostAction;  // Xbox X Button
 
     [Header("UI Elements")]
     public GameObject inputPanel;  
