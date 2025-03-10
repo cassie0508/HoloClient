@@ -17,6 +17,9 @@ using UnityEngine.InputSystem;
 using static PBM_Observer;
 using Microsoft.MixedReality.Toolkit.Input;
 using Microsoft.MixedReality.Toolkit;
+using DuplicatedReality;
+using System.IO;
+using Unity.VisualScripting.Dependencies.NCalc;
 
 namespace Kinect4Azure
 {
@@ -76,16 +79,36 @@ namespace Kinect4Azure
         private ObserverBehaviour marker1Observer;
         private ObserverBehaviour marker2Observer;
 
-        [Header("Input Actions")]
-        public InputAction CalibrationSpineAction;  // Xbox A Button
-        public InputAction CalibrationKinectAction; // Xbox B Button
-        public InputAction ShowShaderAction; // Xbox Y Button
-        public InputAction SwitchToNextShaderAction; // Xbox D-Pad Right Button
-
         [Header("UI Elements")]
         public TextMeshProUGUI CalibrationText;
         public TextMeshProUGUI ShaderText;
 
+        [Header("Input Actions")]
+        public InputAction CalibrationSpineAction;  // Left bumper
+        public InputAction CalibrationKinectAction; // Right bumper
+        public InputAction ShowShaderAction; // Left trigger
+        public InputAction SwitchToNextShaderAction; // Right trigger
+        public InputAction Round0Action; // Y
+        public InputAction Round1Action; // X
+        public InputAction Round2Action; // B
+        public InputAction Round3Action; // A
+
+        [Header("Virtual Guidance")]
+        public GameObject Spine;
+        public List<GameObject> Cylinders = new List<GameObject>();
+
+        [Header("Colliding Test")]
+        public Collider Gorilla;
+        public Collider Phantom;
+        public List<GameObject> SpineCubes = new List<GameObject>();
+
+        // Eye gaze tracking
+        private IMixedRealityGazeProvider gazeProvider;
+        private bool isRecordingGaze = false;
+        private string gazeDataFilePath;
+
+
+        private int round = 0;
 
         private bool spineCalibrated = false;
         private bool kinectCalibrated = false;
@@ -116,12 +139,20 @@ namespace Kinect4Azure
         private ComputeBuffer _ub;
         private ComputeBuffer _vb;
 
-        private IMixedRealityGazeProvider gazeProvider;
+        
         private VuforiaBehaviour vuforia;
 
 
         private void Awake()
         {
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            gazeDataFilePath = Path.Combine(Application.persistentDataPath, $"GazeHitData_{timestamp}.csv");
+            if (!File.Exists(gazeDataFilePath))
+            {
+                // Type: 0: GazeOrigin; 1: GazeHitPhantom; 2: GazeHitSpineCubes; 3: GazeHitCylinders; 4: GazeHitGorilla
+                File.AppendAllText(gazeDataFilePath, "Round,Type,Timestamp,HitObject,PositionX,PositionY,PositionZ\n");
+            }
+
             marker1Observer = marker1.GetComponent<ObserverBehaviour>();
             marker2Observer = marker2.GetComponent<ObserverBehaviour>();
 
@@ -135,6 +166,56 @@ namespace Kinect4Azure
             vuforia = FindObjectOfType<VuforiaBehaviour>(true);
 
             ShaderText.enabled = isShaderTextVisible;
+
+            UpdateCylinderVisibility();
+
+            InvokeRepeating(nameof(CheckGazeHit), 0f, 0.01f);    // Check eye gaze every 0.01s
+        }
+
+        private void CheckGazeHit()
+        {
+            if (gazeProvider == null)
+                return;
+
+            Vector3 gazeOrigin = gazeProvider.GazeOrigin;
+            Vector3 gazeDirection = gazeProvider.GazeDirection;
+            Ray gazeRay = new Ray(gazeOrigin, gazeDirection);
+            RaycastHit hitInfo;
+
+            string logEntry0 = $"{round},0,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Origin,{gazeOrigin.x},{gazeOrigin.y},{gazeOrigin.z}";
+            File.AppendAllText(gazeDataFilePath, logEntry0);
+
+            // Only when it hits phantom, then it can hit others
+            if (Phantom.Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+            {
+                string logEntry1 = $"{round},1,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Phantom,{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}";
+                File.AppendAllText(gazeDataFilePath, logEntry1);
+
+                foreach (var cube in SpineCubes)
+                {
+                    if (cube.GetComponent<Collider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                    {
+                        string logEntry2 = $"{round},2,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},{cube.name},{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}";
+                        File.AppendAllText(gazeDataFilePath, logEntry2);
+                    }
+                }
+
+                // Only test active cylinders
+                foreach (var cylinder in Cylinders)
+                {
+                    if (cylinder.activeSelf && cylinder.GetComponent<Collider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                    {
+                        string logEntry3 = $"{round},3,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},{cylinder.name},{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}";
+                        File.AppendAllText(gazeDataFilePath, logEntry3);
+                    }
+                }
+
+                if (Gorilla.GetComponent<Collider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                {
+                    string logEntry4 = $"{round},4,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Gorilla,{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}";
+                    File.AppendAllText(gazeDataFilePath, logEntry4);
+                }
+            }
         }
 
         private void OnEnable()
@@ -150,6 +231,19 @@ namespace Kinect4Azure
 
             SwitchToNextShaderAction.Enable();
             SwitchToNextShaderAction.performed += OnSwitchToNextShader;
+
+            Round0Action.Enable();
+            Round0Action.performed += OnRound0;
+
+            Round1Action.Enable();
+            Round1Action.performed += OnRound1;
+
+            Round2Action.Enable();
+            Round2Action.performed += OnRound2;
+
+            Round3Action.Enable();
+            Round3Action.performed += OnRound3;
+
         }
 
         private void OnDisable()
@@ -165,6 +259,72 @@ namespace Kinect4Azure
 
             SwitchToNextShaderAction.Disable();
             SwitchToNextShaderAction.performed -= OnSwitchToNextShader;
+
+            Round0Action.Disable();
+            Round0Action.performed -= OnRound0;
+
+            Round1Action.Disable();
+            Round1Action.performed -= OnRound1;
+
+            Round2Action.Disable();
+            Round2Action.performed -= OnRound2;
+
+            Round3Action.Disable();
+            Round3Action.performed -= OnRound3;
+
+        }
+
+        private void OnRound0(InputAction.CallbackContext context)
+        {
+            round = 0;
+            UpdateCylinderVisibility();
+        }
+
+        private void OnRound1(InputAction.CallbackContext context)
+        {
+            round = 1;
+            UpdateCylinderVisibility();
+        }
+
+        private void OnRound2(InputAction.CallbackContext context)
+        {
+            round = 2;
+            UpdateCylinderVisibility();
+        }
+
+        private void OnRound3(InputAction.CallbackContext context)
+        {
+            round = 3;
+            UpdateCylinderVisibility();
+        }
+
+        private void UpdateCylinderVisibility()
+        {
+            for (int i = 0; i < Cylinders.Count; i++)
+            {
+                if (round == 0)
+                {
+                    Cylinders[i].SetActive(false); // all not visible
+                }
+                else if (round == 1 && i < 2)
+                {
+                    Cylinders[i].SetActive(true); // only first two visible
+                }
+                else if (round == 2 && i < 4)
+                {
+                    Cylinders[i].SetActive(true); // only first four visible
+                }
+                else if (round == 3 && i >= 4)
+                {
+                    Cylinders[i].SetActive(true); // only last four visible
+                }
+                else
+                {
+                    Cylinders[i].SetActive(false);
+                }
+            }
+
+            Debug.Log($"Round: {round}, Cylinder Visibility Updated.");
         }
 
         [ContextMenu("Test Calibrate Spine")]
@@ -240,6 +400,7 @@ namespace Kinect4Azure
         {
             trackingSpine = true;
             EnableTracking(marker1Observer);
+            Spine.GetComponent<Duplicable>().EnableOriginal = true;
             UpdateStatusText("Tracking marker 1... Press A again to confirm.");
 
             while (trackingSpine)
@@ -252,6 +413,7 @@ namespace Kinect4Azure
             }
 
             DisableTracking(marker1Observer);
+            Spine.GetComponent<Duplicable>().EnableOriginal = false;
             spineCalibrated = true;
         }
 
@@ -520,25 +682,6 @@ namespace Kinect4Azure
 
                 long timeEnd = DateTime.UtcNow.Ticks;
                 double timeDiff = (timeEnd - timeBegin) / TimeSpan.TicksPerMillisecond;
-
-
-                if (gazeProvider != null)
-                {
-                    Vector3 gazeOrigin = gazeProvider.GazeOrigin;
-                    Vector3 gazeDirection = gazeProvider.GazeDirection;
-
-                    //Debug.DrawRay(gazeOrigin, gazeDirection * 5, Color.red);
-                    Debug.Log($"Gaze Origin: {gazeOrigin}, Gaze Direction: {gazeDirection}");
-
-                    Ray gazeRay = new Ray(gazeOrigin, gazeDirection);
-                    RaycastHit hitInfo;
-
-                    //if (spine.GetComponent<BoxCollider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
-                    //{
-                    //    Debug.Log($"Gaze hit Phantom at: {hitInfo.point}");
-                    //    //Debug.DrawRay(gazeOrigin, gazeDirection * hitInfo.distance, Color.green);
-                    //}
-                }
             }
         }
 
@@ -624,6 +767,7 @@ namespace Kinect4Azure
 
             if (SwitchPointCloudShader(nextShaderIndex))
             {
+                ShaderText.text = $"Shader{nextShaderIndex}: {Shaders[_CurrentSelectedShader].ID}";
                 Debug.Log("KinectSubscriber::NextShaderInList(): Switched to PointCloud Shader " + Shaders[_CurrentSelectedShader].ID);
             }
         }

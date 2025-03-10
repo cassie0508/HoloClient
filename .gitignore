@@ -17,6 +17,8 @@ BuildTest/
 Packages/
 Assets/Editor/
 
+Assets/MixedRealityToolkit.Generated/
+
 # Visual Studio cache directory
 .vs/
 *.vsconfig

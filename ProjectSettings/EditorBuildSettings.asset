@@ -9,11 +9,11 @@ EditorBuildSettings:
     path: Assets/Scenes/Mirror_SampleScene.unity
     guid: 92a809efe4b0205479d9d412db0e11f4
   - enabled: 0
-    path: Assets/Scenes/Old_Replica_PositionPhantom.unity
-    guid: 9fc0d4010bbf28b4594072e72b8655ab
-  - enabled: 0
     path: Assets/Scenes/Baseline.unity
     guid: f50c9a4da66900c448212592c8a28187
+  - enabled: 0
+    path: Assets/Scenes/Old_Replica_PositionPhantom.unity
+    guid: 9fc0d4010bbf28b4594072e72b8655ab
   - enabled: 0
     path: Assets/Scenes/Mirror_SampleScene.unity
     guid: 92a809efe4b0205479d9d412db0e11f4
