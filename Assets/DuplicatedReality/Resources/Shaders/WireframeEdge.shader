@@ -46,7 +46,7 @@
 
                 UNITY_SETUP_INSTANCE_ID(v);
                 UNITY_INITIALIZE_OUTPUT(v2g, o);
-                UNITY_TRANSFER_INSTANCE_ID(v, o);
+                //UNITY_TRANSFER_INSTANCE_ID(v, o);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(o);
 
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex);

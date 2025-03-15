@@ -24,12 +24,9 @@ public class PBM_CaptureCamera : MonoBehaviour
     private Camera _Camera;
     private Material RealVirtualMergeMaterial;
 
-    [Header("Input Actions")]
-    public InputAction SetHostAction;  // Xbox X Button
-
-    [Header("UI Elements")]
-    public GameObject inputPanel;  
-    public TMP_InputField hostInputField; 
+    //[Header("UI Elements")]
+    //public GameObject inputPanel;  
+    //public TMP_InputField hostInputField; 
 
     private bool isInputVisible = false; 
 
@@ -97,11 +94,11 @@ public class PBM_CaptureCamera : MonoBehaviour
         ViewRenderTexture.name = "PBMView";
         ViewRenderTexture.Create();
 
-        // Make sure input panel invisible
-        if (inputPanel != null)
-        {
-            inputPanel.SetActive(false);
-        }
+        //// Make sure input panel invisible
+        //if (inputPanel != null)
+        //{
+        //    inputPanel.SetActive(false);
+        //}
     }
 
     private void Start()
@@ -124,60 +121,48 @@ public class PBM_CaptureCamera : MonoBehaviour
         }
     }
 
-    private void OnEnable()
-    {
-        SetHostAction.Enable();
-        SetHostAction.performed += OnSetHost;
-    }
+    //private void OnSetHost(InputAction.CallbackContext context)
+    //{
+    //    if (inputPanel == null || hostInputField == null) return;
 
-    private void OnDisable()
-    {
-        SetHostAction.Disable();
-        SetHostAction.performed -= OnSetHost;
-    }
+    //    if (!isInputVisible)
+    //    {
+    //        inputPanel.SetActive(true);
+    //        hostInputField.text = host;  // pre-write current host value
+    //        hostInputField.Select();
+    //        hostInputField.ActivateInputField();
+    //    }
+    //    else
+    //    {
+    //        // update host
+    //        string newHost = hostInputField.text.Trim();
+    //        if (!string.IsNullOrEmpty(newHost) && newHost != host)
+    //        {
+    //            host = newHost;
+    //            Debug.Log($"Updated Host: {host}");
 
-    private void OnSetHost(InputAction.CallbackContext context)
-    {
-        if (inputPanel == null || hostInputField == null) return;
+    //            // re-connect subscriber
+    //            if (subscriber != null)
+    //            {
+    //                subscriber.Dispose();
+    //                subscriber = null;
+    //            }
 
-        if (!isInputVisible)
-        {
-            inputPanel.SetActive(true);
-            hostInputField.text = host;  // pre-write current host value
-            hostInputField.Select();
-            hostInputField.ActivateInputField();
-        }
-        else
-        {
-            // update host
-            string newHost = hostInputField.text.Trim();
-            if (!string.IsNullOrEmpty(newHost) && newHost != host)
-            {
-                host = newHost;
-                Debug.Log($"Updated Host: {host}");
+    //            try
+    //            {
+    //                SetupSubscriber();
+    //            }
+    //            catch (Exception ex)
+    //            {
+    //                Debug.LogError($"Failed to reinitialize subscriber: {ex.Message}");
+    //            }
+    //        }
 
-                // re-connect subscriber
-                if (subscriber != null)
-                {
-                    subscriber.Dispose();
-                    subscriber = null;
-                }
+    //        inputPanel.SetActive(false);
+    //    }
 
-                try
-                {
-                    SetupSubscriber();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"Failed to reinitialize subscriber: {ex.Message}");
-                }
-            }
-
-            inputPanel.SetActive(false);
-        }
-
-        isInputVisible = !isInputVisible;
-    }
+    //    isInputVisible = !isInputVisible;
+    //}
 
     private void OnColorSizeReceived(byte[] data)
     {
