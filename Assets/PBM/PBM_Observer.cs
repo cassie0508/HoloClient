@@ -52,6 +52,7 @@ public class PBM_Observer : MonoBehaviour
     [Header("Input Actions")]
     public InputAction CalibrationSpineAction;  // Left bumper
     public InputAction CalibrationKinectAction; // Right bumper
+    public InputAction ShowSpineAction; // Left trigger
     public InputAction Round0Action; // Y
     public InputAction Round1Action; // X
     public InputAction Round2Action; // B
@@ -74,6 +75,7 @@ public class PBM_Observer : MonoBehaviour
     private bool kinectCalibrated = false;
     private bool trackingSpine = false;
     private bool trackingKinect = false;
+    private bool isSpineVisible = false;
 
     private VuforiaBehaviour vuforia;
 
@@ -150,8 +152,273 @@ public class PBM_Observer : MonoBehaviour
         vuforia = FindObjectOfType<VuforiaBehaviour>(true);
 
         UpdateCylinderVisibility();
+    }
+    
 
-        InvokeRepeating(nameof(CheckGazeHit), 0f, 0.01f);    // Check eye gaze every 0.01s
+    private void OnEnable()
+    {
+        CalibrationSpineAction.Enable();
+        CalibrationSpineAction.performed += OnCalibrateSpine;
+
+        CalibrationKinectAction.Enable();
+        CalibrationKinectAction.performed += OnCalibrateKinect;
+
+        ShowSpineAction.Enable();
+        ShowSpineAction.performed += OnShowSpine;
+
+        Round0Action.Enable();
+        Round0Action.performed += OnRound0;
+
+        Round1Action.Enable();
+        Round1Action.performed += OnRound1;
+
+        Round2Action.Enable();
+        Round2Action.performed += OnRound2;
+
+        Round3Action.Enable();
+        Round3Action.performed += OnRound3;
+    }
+
+    private void OnDisable()
+    {
+        CalibrationSpineAction.Disable();
+        CalibrationSpineAction.performed -= OnCalibrateSpine;
+
+        CalibrationKinectAction.Disable();
+        CalibrationKinectAction.performed -= OnCalibrateKinect;
+
+        ShowSpineAction.Disable();
+        ShowSpineAction.performed -= OnShowSpine;
+
+        Round0Action.Disable();
+        Round0Action.performed -= OnRound0;
+
+        Round1Action.Disable();
+        Round1Action.performed -= OnRound1;
+
+        Round2Action.Disable();
+        Round2Action.performed -= OnRound2;
+
+        Round3Action.Disable();
+        Round3Action.performed -= OnRound3;
+    }
+
+    private void OnShowSpine(InputAction.CallbackContext context)
+    {
+        isSpineVisible = !isSpineVisible;
+        Spine.GetComponent<MeshRenderer>().enabled = isSpineVisible;
+    }
+
+    private void OnRound0(InputAction.CallbackContext context)
+    {
+        round = 0;
+        UpdateCylinderVisibility();
+    }
+
+    private void OnRound1(InputAction.CallbackContext context)
+    {
+        round = 1;
+        UpdateCylinderVisibility();
+    }
+
+    private void OnRound2(InputAction.CallbackContext context)
+    {
+        round = 2;
+        UpdateCylinderVisibility();
+    }
+
+    private void OnRound3(InputAction.CallbackContext context)
+    {
+        round = 3;
+        UpdateCylinderVisibility();
+    }
+
+    private void UpdateCylinderVisibility()
+    {
+        for (int i = 0; i < Cylinders.Count; i++)
+        {
+            if (round == 0)
+            {
+                Cylinders[i].SetActive(false); // all not visible
+            }
+            else if (round == 1 && i < 2)
+            {
+                Cylinders[i].SetActive(true); // only first two visible
+            }
+            else if (round == 2 && i < 4)
+            {
+                Cylinders[i].SetActive(true); // only first four visible
+            }
+            else if (round == 3 && i >= 4)
+            {
+                Cylinders[i].SetActive(true); // only last four visible
+            }
+            else
+            {
+                Cylinders[i].SetActive(false);
+            }
+        }
+
+        Debug.Log($"Round: {round}, Cylinder Visibility Updated.");
+    }
+
+    private void OnCalibrateSpine(InputAction.CallbackContext context)
+    {
+        if (!trackingSpine)
+        {
+            StartCoroutine(CalibrateSpine());
+        }
+        else
+        {
+            trackingSpine = false;
+            string logEntryMarker1Position = $",,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Marker1,{OToMarker1.GetPosition().x},{OToMarker1.GetPosition().y},{OToMarker1.GetPosition().z}\n";
+            string logEntryMarker1Rotation = $",,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Marker1,{OToMarker1.rotation.eulerAngles.x},{OToMarker1.rotation.eulerAngles.y},{OToMarker1.rotation.eulerAngles.z}\n";
+            File.AppendAllText(gazeDataFilePath, logEntryMarker1Position);
+            File.AppendAllText(gazeDataFilePath, logEntryMarker1Rotation);
+            UpdateStatusText("");
+            Debug.Log("Spine calibration confirmed.");
+        }
+    }
+
+    private void OnCalibrateKinect(InputAction.CallbackContext context)
+    {
+        if (!spineCalibrated)
+        {
+            UpdateStatusText("Calibrate spine first (Press left bumper)");
+            return;
+        }
+
+        if (!trackingKinect)
+        {
+            StartCoroutine(CalibrateKinect());
+        }
+        else
+        {
+            trackingKinect = false;
+            string logEntryMarker2Position = $",,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Marker2,{OToMarker2.GetPosition().x},{OToMarker2.GetPosition().y},{OToMarker2.GetPosition().z}\n";
+            string logEntryMarker2Rotation = $",,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Marker2,{OToMarker2.rotation.eulerAngles.x},{OToMarker2.rotation.eulerAngles.y},{OToMarker2.rotation.eulerAngles.z}\n";
+            File.AppendAllText(gazeDataFilePath, logEntryMarker2Position);
+            File.AppendAllText(gazeDataFilePath, logEntryMarker2Rotation);
+
+            if (pbm == null && CapturingCamera == null)
+            {
+                // initialize pbm
+                pbm = new PBM();
+                CapturingCamera = FindObjectOfType<PBM_CaptureCamera>();
+                CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
+                RegisterCapturer(CapturingCamera);
+                Debug.Log("Kinect calibration confirmed. Initialize pbm and CapturingCamera");
+            }
+            else if (pbm != null && CapturingCamera != null)
+            {
+                CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
+                pbm.ImageQuad.transform.parent = CapturingCamera.transform;
+                Debug.Log("Kinect calibration confirmed. Update pbm and CapturingCamera");
+            }
+
+            UpdateStatusText("");
+        }
+    }
+
+    private void RegisterCapturer(PBM_CaptureCamera capturer)
+    {
+        pbm.SourceCamera = capturer.GetComponent<Camera>();
+        pbm.ImageQuad = new GameObject();
+        pbm.ImageQuad.name = "PBM_" + capturer.name;
+        pbm.ImageQuad.transform.parent = capturer.transform;
+        pbm.ImageQuad.transform.localPosition = Vector3.zero;
+        pbm.ImageQuad.transform.localRotation = Quaternion.identity;
+        pbm.ImageQuad.transform.localScale = Vector3.one;
+        pbm.ImageQuadMesh = new Mesh();
+        pbm.ImageQuad.AddComponent<MeshFilter>().mesh = pbm.ImageQuadMesh;
+
+        pbm.ImageMat = Instantiate(Resources.Load("PBM/PBMQuadMaterial") as Material);
+        pbm.Texture = new RenderTexture(capturer.Width, capturer.Height, 24, RenderTextureFormat.ARGB32); //new Texture2D(capturer.Width, capturer.Height, TextureFormat.RGBA32, false);
+        pbm.ImageMat.mainTexture = pbm.Texture;
+        pbm.ImageRenderer = pbm.ImageQuad.AddComponent<MeshRenderer>();
+        pbm.ImageRenderer.material = pbm.ImageMat;
+        pbm.ImageQuad.layer = LayerMask.NameToLayer("PBM");
+
+        pbm.EnableCropping = Cropping;
+        pbm.CropSize = CropSize;
+        pbm.Transparency = Transparency;
+        pbm.BorderSize = 0.01f;
+    }
+
+
+    private IEnumerator CalibrateSpine()
+    {
+        trackingSpine = true;
+        EnableTracking(marker1Observer);
+        UpdateStatusText("Tracking marker 1... Press left bumper again to confirm.");
+
+        while (trackingSpine)
+        {
+            if (marker1Observer.TargetStatus.Status == Status.TRACKED)  // Will set its children
+            {
+                OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
+                Phantom.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
+                Debug.Log("Marker 1 tracked and updated.");
+            }
+            yield return null;
+        }
+
+        DisableTracking(marker1Observer);
+        spineCalibrated = true;
+    }
+
+    private IEnumerator CalibrateKinect()
+    {
+        trackingKinect = true;
+        EnableTracking(marker2Observer);
+        UpdateStatusText("Tracking marker 2... Press B again to confirm.");
+
+        while (trackingKinect)
+        {
+            if (marker2Observer.TargetStatus.Status == Status.TRACKED)
+            {
+                OToMarker2 = Matrix4x4.TRS(marker2.transform.position, marker2.transform.rotation, Vector3.one);
+                OToKinect = Matrix4x4.TRS(kinectPlaceholder.transform.position, kinectPlaceholder.transform.rotation, Vector3.one);
+                Debug.Log("Marker 2 tracked and updated.");
+            }
+            yield return null;
+        }
+
+        Debug.Log($"kinect transform {OToKinect.GetPosition()}, {OToKinect.rotation.eulerAngles}");
+        DisableTracking(marker2Observer);
+        kinectCalibrated = true;
+    }
+
+    private void EnableTracking(ObserverBehaviour marker)
+    {
+        vuforia.enabled = true;
+        marker.enabled = true;
+        Debug.Log($"Tracking enabled for {marker.name}");
+    }
+
+    private void DisableTracking(ObserverBehaviour marker)
+    {
+        vuforia.enabled = false;
+        marker.enabled = false;
+        Debug.Log($"Tracking disabled for {marker.name}");
+    }
+
+    private void UpdateStatusText(string message)
+    {
+        if (CalibrationText != null)
+        {
+            CalibrationText.text = message;
+        }
+    }
+
+
+    private void Update()
+    {
+        if (pbm != null && CapturingCamera != null)
+        {
+            UpdatePBM();
+            CheckGazeHit();
+        }
     }
 
     private void CheckGazeHit()
@@ -218,248 +485,6 @@ public class PBM_Observer : MonoBehaviour
                 string logEntry9 = $"{round},9,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Gorilla,{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}\n";
                 File.AppendAllText(gazeDataFilePath, logEntry9);
             }
-        }
-    }
-
-    private void OnEnable()
-    {
-        CalibrationSpineAction.Enable();
-        CalibrationSpineAction.performed += OnCalibrateSpine;
-
-        CalibrationKinectAction.Enable();
-        CalibrationKinectAction.performed += OnCalibrateKinect;
-
-        Round0Action.Enable();
-        Round0Action.performed += OnRound0;
-
-        Round1Action.Enable();
-        Round1Action.performed += OnRound1;
-
-        Round2Action.Enable();
-        Round2Action.performed += OnRound2;
-
-        Round3Action.Enable();
-        Round3Action.performed += OnRound3;
-    }
-
-    private void OnDisable()
-    {
-        CalibrationSpineAction.Disable();
-        CalibrationSpineAction.performed -= OnCalibrateSpine;
-
-        CalibrationKinectAction.Disable();
-        CalibrationKinectAction.performed -= OnCalibrateKinect;
-
-        Round0Action.Disable();
-        Round0Action.performed -= OnRound0;
-
-        Round1Action.Disable();
-        Round1Action.performed -= OnRound1;
-
-        Round2Action.Disable();
-        Round2Action.performed -= OnRound2;
-
-        Round3Action.Disable();
-        Round3Action.performed -= OnRound3;
-    }
-
-    private void OnRound0(InputAction.CallbackContext context)
-    {
-        round = 0;
-        UpdateCylinderVisibility();
-    }
-
-    private void OnRound1(InputAction.CallbackContext context)
-    {
-        round = 1;
-        UpdateCylinderVisibility();
-    }
-
-    private void OnRound2(InputAction.CallbackContext context)
-    {
-        round = 2;
-        UpdateCylinderVisibility();
-    }
-
-    private void OnRound3(InputAction.CallbackContext context)
-    {
-        round = 3;
-        UpdateCylinderVisibility();
-    }
-
-    private void UpdateCylinderVisibility()
-    {
-        for (int i = 0; i < Cylinders.Count; i++)
-        {
-            if (round == 0)
-            {
-                Cylinders[i].SetActive(false); // all not visible
-            }
-            else if (round == 1 && i < 2)
-            {
-                Cylinders[i].SetActive(true); // only first two visible
-            }
-            else if (round == 2 && i < 4)
-            {
-                Cylinders[i].SetActive(true); // only first four visible
-            }
-            else if (round == 3 && i >= 4)
-            {
-                Cylinders[i].SetActive(true); // only last four visible
-            }
-            else
-            {
-                Cylinders[i].SetActive(false);
-            }
-        }
-
-        Debug.Log($"Round: {round}, Cylinder Visibility Updated.");
-    }
-
-    private void OnCalibrateSpine(InputAction.CallbackContext context)
-    {
-        if (!trackingSpine)
-        {
-            StartCoroutine(CalibrateSpine());
-        }
-        else
-        {
-            trackingSpine = false;
-            UpdateStatusText("Press B to calibrate Kinect");
-            Debug.Log("Spine calibration confirmed.");
-        }
-    }
-
-    private void OnCalibrateKinect(InputAction.CallbackContext context)
-    {
-        if (!spineCalibrated)
-        {
-            UpdateStatusText("Calibrate spine first (Press A)");
-            return;
-        }
-
-        if (!trackingKinect)
-        {
-            StartCoroutine(CalibrateKinect());
-        }
-        else
-        {
-            trackingKinect = false;
-            if(pbm == null && CapturingCamera == null)
-            {
-                pbm = new PBM();
-                CapturingCamera = FindObjectOfType<PBM_CaptureCamera>();
-                CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
-                RegisterCapturer(CapturingCamera);
-                Debug.Log("Kinect calibration confirmed. Initialize pbm and CapturingCamera");
-                UpdateStatusText("");
-            }
-            else if (pbm != null && CapturingCamera != null)
-            {
-                CapturingCamera.transform.SetPositionAndRotation(OToKinect.GetPosition(), OToKinect.rotation);
-                pbm.ImageQuad.transform.parent = CapturingCamera.transform;
-                Debug.Log("Kinect calibration confirmed. Update pbm and CapturingCamera");
-                UpdateStatusText("");
-            }
-        }
-    }
-
-    private void RegisterCapturer(PBM_CaptureCamera capturer)
-    {
-        pbm.SourceCamera = capturer.GetComponent<Camera>();
-        pbm.ImageQuad = new GameObject();
-        pbm.ImageQuad.name = "PBM_" + capturer.name;
-        pbm.ImageQuad.transform.parent = capturer.transform;
-        pbm.ImageQuad.transform.localPosition = Vector3.zero;
-        pbm.ImageQuad.transform.localRotation = Quaternion.identity;
-        pbm.ImageQuad.transform.localScale = Vector3.one;
-        pbm.ImageQuadMesh = new Mesh();
-        pbm.ImageQuad.AddComponent<MeshFilter>().mesh = pbm.ImageQuadMesh;
-
-        pbm.ImageMat = Instantiate(Resources.Load("PBM/PBMQuadMaterial") as Material);
-        pbm.Texture = new RenderTexture(capturer.Width, capturer.Height, 24, RenderTextureFormat.ARGB32); //new Texture2D(capturer.Width, capturer.Height, TextureFormat.RGBA32, false);
-        pbm.ImageMat.mainTexture = pbm.Texture;
-        pbm.ImageRenderer = pbm.ImageQuad.AddComponent<MeshRenderer>();
-        pbm.ImageRenderer.material = pbm.ImageMat;
-        pbm.ImageQuad.layer = LayerMask.NameToLayer("PBM");
-
-        pbm.EnableCropping = Cropping;
-        pbm.CropSize = CropSize;
-        pbm.Transparency = Transparency;
-        pbm.BorderSize = 0.01f;
-    }
-
-
-    private IEnumerator CalibrateSpine()
-    {
-        trackingSpine = true;
-        EnableTracking(marker1Observer);
-        UpdateStatusText("Tracking marker 1... Press left bumper again to confirm.");
-
-        while (trackingSpine)
-        {
-            if (marker1Observer.TargetStatus.Status == Status.TRACKED)  // Will set its children
-            {
-                Phantom.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
-                Debug.Log("Marker 1 tracked and updated.");
-            }
-            yield return null;
-        }
-
-        DisableTracking(marker1Observer);
-        spineCalibrated = true;
-    }
-
-    private IEnumerator CalibrateKinect()
-    {
-        trackingKinect = true;
-        EnableTracking(marker2Observer);
-        UpdateStatusText("Tracking marker 2... Press B again to confirm.");
-
-        while (trackingKinect)
-        {
-            if (marker2Observer.TargetStatus.Status == Status.TRACKED)
-            {
-                OToMarker2 = Matrix4x4.TRS(marker2.transform.position, marker2.transform.rotation, Vector3.one);
-                OToKinect = Matrix4x4.TRS(kinectPlaceholder.transform.position, kinectPlaceholder.transform.rotation, Vector3.one);
-                Debug.Log("Marker 2 tracked and updated.");
-            }
-            yield return null;
-        }
-
-        Debug.Log($"kinect transform {OToKinect.GetPosition()}, {OToKinect.rotation.eulerAngles}");
-        DisableTracking(marker2Observer);
-        kinectCalibrated = true;
-    }
-
-    private void EnableTracking(ObserverBehaviour marker)
-    {
-        vuforia.enabled = true;
-        marker.enabled = true;
-        Debug.Log($"Tracking enabled for {marker.name}");
-    }
-
-    private void DisableTracking(ObserverBehaviour marker)
-    {
-        vuforia.enabled = false;
-        marker.enabled = false;
-        Debug.Log($"Tracking disabled for {marker.name}");
-    }
-
-    private void UpdateStatusText(string message)
-    {
-        if (CalibrationText != null)
-        {
-            CalibrationText.text = message;
-        }
-    }
-
-
-    private void Update()
-    {
-        if (pbm != null && CapturingCamera != null)
-        {
-            UpdatePBM();
         }
     }
 

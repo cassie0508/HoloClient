@@ -90,7 +90,7 @@ public class PBM_CaptureCamera : MonoBehaviour
 
         RealVirtualMergeMaterial = new Material(Shader.Find("PBM/ViewMerge"));
 
-        ViewRenderTexture = new RenderTexture(_Width, _Height, 24);
+        ViewRenderTexture = new RenderTexture(_Width, _Height, 24, RenderTextureFormat.ARGB32);
         ViewRenderTexture.name = "PBMView";
         ViewRenderTexture.Create();
 
@@ -242,7 +242,7 @@ public class PBM_CaptureCamera : MonoBehaviour
 
             if (textureSource == null)
             {
-                textureSource = new Texture2D(source.width, source.height, TextureFormat.RGB24, false);
+                textureSource = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
             }
             RenderTexture.active = source;
             textureSource.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);

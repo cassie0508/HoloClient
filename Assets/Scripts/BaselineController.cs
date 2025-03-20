@@ -8,6 +8,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Vuforia;
+using static PBM_Observer;
 
 public class BaselineController : MonoBehaviour
 {
@@ -16,6 +17,7 @@ public class BaselineController : MonoBehaviour
     [SerializeField] private GameObject marker1;
 
     private ObserverBehaviour marker1Observer;
+    private Matrix4x4 OToMarker1;
 
     [Header("UI Elements")]
     public TextMeshProUGUI CalibrationText; // UI text for displaying calibration state
@@ -29,14 +31,15 @@ public class BaselineController : MonoBehaviour
 
     [Header("Virtual Guidance")]
     public GameObject Spine;
-    public GameObject Phantom;
     public List<GameObject> Cylinders = new List<GameObject>();
 
     [Header("Colliding Test")]
     public Collider Gorilla;
+    public Collider Phantom;
     public List<GameObject> SpineCubes = new List<GameObject>();
 
     private int round = 0;
+    private bool hasCalibrationDone = false;
 
     private bool spineCalibrated = false;
     private bool kinectCalibrated = false;
@@ -178,6 +181,11 @@ public class BaselineController : MonoBehaviour
             trackingSpine = false;
             Debug.Log("Spine calibration confirmed.");
             UpdateStatusText("");
+
+            string logEntryMarker1Position = $",,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Marker1,{OToMarker1.GetPosition().x},{OToMarker1.GetPosition().y},{OToMarker1.GetPosition().z}\n";
+            string logEntryMarker1Rotation = $",,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Marker1,{OToMarker1.rotation.eulerAngles.x},{OToMarker1.rotation.eulerAngles.y},{OToMarker1.rotation.eulerAngles.z}\n";
+            File.AppendAllText(gazeDataFilePath, logEntryMarker1Position);
+            File.AppendAllText(gazeDataFilePath, logEntryMarker1Rotation);
         }
     }
 
@@ -191,7 +199,8 @@ public class BaselineController : MonoBehaviour
         {
             if (marker1Observer.TargetStatus.Status == Status.TRACKED)  // Will set its children
             {
-                Phantom.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
+                OToMarker1 = Matrix4x4.TRS(marker1.transform.position, marker1.transform.rotation, Vector3.one);
+                Spine.transform.SetPositionAndRotation(spinePlaceholder.transform.position, spinePlaceholder.transform.rotation);
                 Debug.Log("Marker 1 tracked and updated.");
             }
             yield return null;
@@ -220,6 +229,81 @@ public class BaselineController : MonoBehaviour
         if (CalibrationText != null)
         {
             CalibrationText.text = message;
+        }
+    }
+
+    private void Update()
+    {
+        if (hasCalibrationDone)
+        {
+            CheckGazeHit();
+        }
+    }
+
+    private void CheckGazeHit()
+    {
+        if (gazeProvider == null)
+            return;
+
+        /* Head */
+        Vector3 headPosition = Camera.main.transform.position;
+        Vector3 headForward = Camera.main.transform.forward;
+        Vector3 headUp = Camera.main.transform.up;
+        Vector3 headRight = Camera.main.transform.right;
+
+        string logEntry0 = $"{round},0,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},HeadPosition,{headPosition.x},{headPosition.y},{headPosition.z}\n";
+        File.AppendAllText(gazeDataFilePath, logEntry0);
+        Debug.Log($"HeadPosition: {headPosition}");
+        string logEntry1 = $"{round},1,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},HeadForward,{headForward.x},{headForward.y},{headForward.z}\n";
+        File.AppendAllText(gazeDataFilePath, logEntry1);
+        string logEntry2 = $"{round},2,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},HeadUp,{headUp.x},{headUp.y},{headUp.z}\n";
+        File.AppendAllText(gazeDataFilePath, logEntry2);
+        string logEntry3 = $"{round},3,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},HeadRight,{headRight.x},{headRight.y},{headRight.z}\n";
+        File.AppendAllText(gazeDataFilePath, logEntry3);
+
+        /* Eye */
+        Vector3 gazeOrigin = gazeProvider.GazeOrigin;
+        Vector3 gazeDirection = gazeProvider.GazeDirection;
+        Ray gazeRay = new Ray(gazeOrigin, gazeDirection);
+        RaycastHit hitInfo;
+
+        string logEntry4 = $"{round},4,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},GazeOrigin,{gazeOrigin.x},{gazeOrigin.y},{gazeOrigin.z}\n";
+        File.AppendAllText(gazeDataFilePath, logEntry4);
+        Debug.Log($"gazeOrigin: {gazeOrigin}");
+        string logEntry5 = $"{round},5,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},GazeDirection,{gazeDirection.x},{gazeDirection.y},{gazeDirection.z}\n";
+        File.AppendAllText(gazeDataFilePath, logEntry5);
+
+        // Only when it hits phantom, then it can hit others
+        if (Phantom.Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+        {
+            string logEntry6 = $"{round},6,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Phantom,{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}\n";
+            File.AppendAllText(gazeDataFilePath, logEntry6);
+            Debug.Log($"Phantom: {hitInfo}");
+
+            foreach (var cube in SpineCubes)
+            {
+                if (cube.GetComponent<Collider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                {
+                    string logEntry7 = $"{round},7,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},{cube.name},{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}\n";
+                    File.AppendAllText(gazeDataFilePath, logEntry7);
+                }
+            }
+
+            // Only test active cylinders
+            foreach (var cylinder in Cylinders)
+            {
+                if (cylinder.activeSelf && cylinder.GetComponent<Collider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+                {
+                    string logEntry8 = $"{round},8,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},{cylinder.name},{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}\n";
+                    File.AppendAllText(gazeDataFilePath, logEntry8);
+                }
+            }
+
+            if (Gorilla.GetComponent<Collider>().Raycast(gazeRay, out hitInfo, Mathf.Infinity))
+            {
+                string logEntry9 = $"{round},9,{DateTime.Now.ToString("yyyyMMdd_HHmmss")},Gorilla,{hitInfo.point.x},{hitInfo.point.y},{hitInfo.point.z}\n";
+                File.AppendAllText(gazeDataFilePath, logEntry9);
+            }
         }
     }
 }

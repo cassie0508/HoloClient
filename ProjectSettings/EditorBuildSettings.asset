@@ -14,13 +14,13 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Scenes/Old_Replica_PositionPhantom.unity
     guid: 9fc0d4010bbf28b4594072e72b8655ab
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/Baseline.unity
     guid: 92a809efe4b0205479d9d412db0e11f4
   - enabled: 0
     path: Assets/Scenes/Old_Replica_SampleScene.unity
     guid: 09d083e0658852a4788618cf72aa4347
-  - enabled: 0
+  - enabled: 1
     path: Assets/Scenes/Replica_SampleScene.unity
     guid: 9d47db2b5ca0bac4e8307721e78632fb
   - enabled: 0
